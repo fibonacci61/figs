@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use bytemuck::{Pod, Zeroable};
 use log::{info, warn};
 
@@ -10,7 +10,7 @@ const NINTENDO_LOGO: &[u8] = &[
 
 pub struct Header<'a> {
     // declared separately from HeaderFlags because its length is variable
-    pub title: &'a [u8],
+    pub title: &'a str,
     pub header_flags: &'a HeaderFlags,
 }
 
@@ -49,14 +49,13 @@ pub fn parse_rom_header<'a>(rom: &'a [u8]) -> anyhow::Result<Header<'a>> {
 
     // trim title_bytes based
     let title_len = title_bytes.iter().position(|v| *v == 0);
-    let title = match title_len {
+    let title = str::from_utf8(match title_len {
         Some(len) => &title_bytes[..len],
         _ => title_bytes,
-    };
-    info!(
-        "parsed cartridge title: '{}'",
-        String::from_utf8_lossy(title)
-    );
+    })
+    .map_err(|_| anyhow!("ROM title contains invalid UTF-8"))?;
+
+    info!("parsed cartridge title: '{}'", title);
 
     // parse the rest of the flags instantaneously since they
     let header_flags = bytemuck::from_bytes::<HeaderFlags>(&rom[0x144..0x150]);
