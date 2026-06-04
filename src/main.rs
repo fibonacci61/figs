@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
+use crate::cartridge::Cartridge;
+
 #[derive(Parser)]
 #[command(version, about)]
 struct Figs {
@@ -15,8 +17,8 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let figs = Figs::parse();
-    let rom_bytes = std::fs::read(&figs.rom_path)?;
-    let _header = cartridge::parse_rom_header(&rom_bytes)?;
+    let rom = std::fs::read(&figs.rom_path)?;
+    let _cart = Cartridge::new(rom)?;
 
     Ok(())
 }
