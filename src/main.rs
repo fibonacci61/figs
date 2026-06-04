@@ -1,3 +1,4 @@
+mod bus;
 mod cartridge;
 
 use std::path::PathBuf;
