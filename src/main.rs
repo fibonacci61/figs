@@ -1,11 +1,12 @@
 mod bus;
 mod cartridge;
+mod cpu;
 
 use std::path::PathBuf;
 
 use clap::Parser;
 
-use crate::cartridge::Cartridge;
+use crate::{bus::Bus, cartridge::Cartridge, cpu::Cpu};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -19,7 +20,13 @@ fn main() -> anyhow::Result<()> {
 
     let figs = Figs::parse();
     let rom = std::fs::read(&figs.rom_path)?;
-    let _cart = Cartridge::new(rom)?;
+    let cart = Cartridge::new(rom)?;
+    let bus = Bus { cartridge: cart };
+
+    let mut cpu = Cpu::new(bus);
+    for _ in 0..100 {
+        cpu.next();
+    }
 
     Ok(())
 }
