@@ -49,11 +49,16 @@ pub fn parse_rom_header<'a>(rom: &'a [u8]) -> anyhow::Result<Header<'a>> {
 
     // trim title_bytes based
     let title_len = title_bytes.iter().position(|v| *v == 0);
-    let title = str::from_utf8(match title_len {
+    let trimmed_title = match title_len {
         Some(len) => &title_bytes[..len],
         _ => title_bytes,
-    })
-    .map_err(|_| anyhow!("ROM title contains invalid UTF-8"))?;
+    };
+    if !trimmed_title.is_ascii() {
+        bail!("ROM title contains invalid UTF-8");
+    }
+
+    // all ASCII is valid UTF-8
+    let title = str::from_utf8(trimmed_title).unwrap();
 
     info!("parsed cartridge title: '{}'", title);
 
