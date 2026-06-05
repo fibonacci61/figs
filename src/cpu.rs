@@ -1,6 +1,5 @@
 use crate::bus::Bus;
 
-#[derive(Default)]
 pub struct Registers {
     pub a: u8,
     pub f: u8,
@@ -17,26 +16,366 @@ pub struct Registers {
 pub struct Cpu {
     regs: Registers,
     bus: Bus,
+
+    // interrupt master enable
+    // enables/disables all non maskable interrupts
+    ime: bool,
+}
+
+const FLAG_Z: u8 = 0x80;
+const FLAG_N: u8 = 0x40;
+const FLAG_H: u8 = 0x20;
+const FLAG_C: u8 = 0x10;
+
+impl Registers {
+    // initialize with values from DMG ROM hand-off state
+    pub fn new(header_checksum: u8) -> Self {
+        Self {
+            a: 0x01,
+            f: if header_checksum == 0 {
+                FLAG_Z
+            } else {
+                FLAG_Z | FLAG_H | FLAG_C
+            },
+            b: 0x00,
+            c: 0x13,
+            d: 0x00,
+            e: 0xD8,
+            h: 0x01,
+            l: 0x4D,
+            pc: 0x0100,
+            sp: 0xFFFE,
+        }
+    }
+
+    pub fn af(&self) -> u16 {
+        ((self.a as u16) << 8) | (self.f as u16)
+    }
+
+    pub fn bc(&self) -> u16 {
+        ((self.b as u16) << 8) | (self.c as u16)
+    }
+
+    pub fn de(&self) -> u16 {
+        ((self.d as u16) << 8) | (self.e as u16)
+    }
+
+    pub fn hl(&self) -> u16 {
+        ((self.h as u16) << 8) | (self.l as u16)
+    }
+
+    pub fn set_af(&mut self, value: u16) {
+        self.a = (value >> 8) as u8;
+        self.f = value as u8;
+    }
+
+    pub fn set_bc(&mut self, value: u16) {
+        self.b = (value >> 8) as u8;
+        self.c = value as u8;
+    }
+
+    pub fn set_de(&mut self, value: u16) {
+        self.d = (value >> 8) as u8;
+        self.e = value as u8;
+    }
+
+    pub fn set_hl(&mut self, value: u16) {
+        self.h = (value >> 8) as u8;
+        self.l = value as u8;
+    }
+
+    pub fn set_flag_z(&mut self, value: bool) {
+        if value {
+            self.f |= FLAG_Z;
+        } else {
+            self.f &= !FLAG_Z
+        }
+    }
+
+    pub fn set_flag_n(&mut self, value: bool) {
+        if value {
+            self.f |= FLAG_N;
+        } else {
+            self.f &= !FLAG_N
+        }
+    }
+    pub fn set_flag_h(&mut self, value: bool) {
+        if value {
+            self.f |= FLAG_H;
+        } else {
+            self.f &= !FLAG_H
+        }
+    }
+    pub fn set_flag_c(&mut self, value: bool) {
+        if value {
+            self.f |= FLAG_C;
+        } else {
+            self.f &= !FLAG_C
+        }
+    }
 }
 
 impl Cpu {
     pub fn new(bus: Bus) -> Self {
         Self {
-            regs: Registers {
-                pc: 0x0100,
-                ..Default::default()
-            },
+            regs: Registers::new(bus.cartridge.header_flags().header_checksum),
             bus,
+            ime: false,
         }
     }
 
-    pub fn next(&mut self) {
-        let opcode = self.bus.read(self.regs.pc);
+    fn fetch_byte(&mut self) -> u8 {
+        let byte = self.bus.read(self.regs.pc);
         self.regs.pc += 1;
+        byte
+    }
+
+    fn fetch_word(&mut self) -> u16 {
+        let lo = self.fetch_byte();
+        let hi = self.fetch_byte();
+        ((hi as u16) << 8) | (lo as u16)
+    }
+
+    fn push_byte(&mut self, value: u8) {
+        self.regs.sp -= 1;
+        self.bus.write(self.regs.sp, value);
+    }
+
+    fn push_word(&mut self, value: u16) {
+        self.push_byte((value >> 8) as u8);
+        self.push_byte(value as u8);
+    }
+
+    fn pop_byte(&mut self) -> u8 {
+        let byte = self.bus.read(self.regs.sp);
+        self.regs.sp += 1;
+        byte
+    }
+
+    fn pop_word(&mut self) -> u16 {
+        let lo = self.pop_byte();
+        let hi = self.pop_byte();
+        ((hi as u16) << 8) | (lo as u16)
+    }
+
+    pub fn next(&mut self) {
+        let opcode = self.fetch_byte();
         match opcode {
             // nop
             0x00 => {}
-            _ => panic!("unimplemented opcode: 0x{opcode:02X}"),
+            // jp a16
+            0xC3 => {
+                self.regs.pc = self.fetch_word();
+                log::trace!("jumped to addr 0x{:X}", self.regs.pc);
+            }
+            // di
+            0xF3 => {
+                self.ime = false;
+            }
+            // ld sp, d16
+            0x31 => {
+                self.regs.sp = self.fetch_word();
+                log::trace!("set sp to 0x{:X}", self.regs.sp);
+            }
+            // ld (a16), a
+            0xEA => {
+                let addr = self.fetch_word();
+                self.bus.write(addr, self.regs.a);
+            }
+            // ld a, d8
+            0x3E => {
+                self.regs.a = self.fetch_byte();
+            }
+            // ld (a8), a
+            0xE0 => {
+                let addr = (self.fetch_byte() as u16) | 0xFF00;
+                self.bus.write(addr, self.regs.a);
+            }
+            // ld hl, d16
+            0x21 => {
+                let value = self.fetch_word();
+                self.regs.set_hl(value);
+            }
+            // call a16
+            0xCD => {
+                let addr = self.fetch_word();
+                self.push_word(self.regs.pc);
+                self.regs.pc = addr;
+                log::trace!("called routine at addr 0x{addr:X}");
+            }
+            // ld a, l
+            0x7D => {
+                self.regs.a = self.regs.l;
+            }
+            // ld a, h
+            0x7C => {
+                self.regs.a = self.regs.h;
+            }
+            // jr s8
+            0x18 => {
+                let offset = self.fetch_byte() as i16;
+                self.regs.pc = self.regs.pc.wrapping_add_signed(offset);
+            }
+            // ret
+            0xC9 => {
+                let addr = self.pop_word();
+                self.regs.pc = addr;
+                log::trace!("returning to addr {addr:X}");
+            }
+            // push hl
+            0xE5 => {
+                self.push_word(self.regs.hl());
+            }
+            // pop hl
+            0xE1 => {
+                let value = self.pop_word();
+                self.regs.set_hl(value);
+            }
+            // push af
+            0xF5 => {
+                self.push_word(self.regs.af());
+            }
+            // inc hl
+            0x23 => {
+                self.regs.set_hl(self.regs.hl().wrapping_add(1));
+            }
+            // ld a, (hl+)
+            0x2A => {
+                let value = self.bus.read(self.regs.hl());
+                self.regs.a = value;
+                self.regs.set_hl(self.regs.hl() + 1);
+            }
+            // pop af
+            0xF1 => {
+                let value = self.pop_word();
+                self.regs.set_af(value);
+            }
+            // push bc
+            0xC5 => {
+                self.push_word(self.regs.bc());
+            }
+            // ld bc, d16
+            0x01 => {
+                let value = self.fetch_word();
+                self.regs.set_bc(value);
+            }
+            // inc bc
+            0x03 => {
+                self.regs.set_bc(self.regs.bc() + 1);
+            }
+            // ld a, b
+            0x78 => {
+                self.regs.a = self.regs.b;
+            }
+            // or c
+            0xB1 => {
+                self.regs.a |= self.regs.c;
+                self.regs.set_flag_z(self.regs.a == 0);
+            }
+            // jr z, s8
+            0x28 => {
+                let offset = self.fetch_byte() as i16;
+                if (self.regs.f & FLAG_Z) != 0 {
+                    self.regs.pc = self.regs.pc.wrapping_add_signed(offset);
+                }
+            }
+            // pop bc
+            0xC1 => {
+                let value = self.pop_word();
+                self.regs.set_bc(value);
+            }
+            // ld a, (a16)
+            0xFA => {
+                let addr = self.fetch_word();
+                self.regs.a = self.bus.read(addr);
+            }
+            // and d8
+            0xE6 => {
+                let value = self.fetch_byte();
+                self.regs.a &= value;
+
+                self.regs.set_flag_z(self.regs.a == 0);
+                self.regs.set_flag_n(false);
+                self.regs.set_flag_h(true);
+                self.regs.set_flag_c(false);
+            }
+            // call nz, a16
+            0xC4 => {
+                let addr = self.fetch_word();
+                if (self.regs.f & FLAG_Z) == 0 {
+                    self.push_word(self.regs.pc);
+                    self.regs.pc = addr;
+                }
+            }
+            // ld b, d8
+            0x06 => {
+                self.regs.b = self.fetch_byte();
+            }
+            // ld (hl), a
+            0x77 => {
+                self.bus.write(self.regs.hl(), self.regs.a);
+            }
+            // inc l
+            0x2C => {
+                self.regs.l = self.regs.l.wrapping_add(1);
+
+                self.regs.set_flag_z(self.regs.l == 0);
+                self.regs.set_flag_n(false);
+                self.regs.set_flag_h(self.regs.l == 0x10);
+            }
+            // jr nz, s8
+            0x20 => {
+                let offset = self.fetch_byte() as i16;
+                if (self.regs.f & FLAG_Z) == 0 {
+                    self.regs.pc = self.regs.pc.wrapping_add_signed(offset);
+                }
+            }
+            // inc h
+            0x24 => {
+                self.regs.set_flag_h(self.regs.h == 0x0F);
+                self.regs.h = self.regs.h.wrapping_add(1);
+
+                self.regs.set_flag_z(self.regs.h == 0);
+                self.regs.set_flag_n(false);
+            }
+            // dec b
+            0x05 => {
+                self.regs.set_flag_h((self.regs.b & 0x0F) == 0);
+                self.regs.b = self.regs.b.wrapping_sub(1);
+
+                self.regs.set_flag_z(self.regs.h == 0);
+                self.regs.set_flag_n(true);
+            }
+            // ld c, d8
+            0x0E => {
+                self.regs.c = self.fetch_byte();
+            }
+            // ld de, d16
+            0x11 => {
+                let value = self.fetch_word();
+                self.regs.set_de(value);
+            }
+            // ld a, (de)
+            0x1A => {
+                self.regs.a = self.bus.read(self.regs.de());
+            }
+            // inc de
+            0x13 => {
+                self.regs.set_de(self.regs.de() + 1);
+            }
+            // xor c
+            0xA9 => {
+                self.regs.a ^= self.regs.c;
+
+                self.regs.set_flag_z(self.regs.a == 0);
+                self.regs.set_flag_n(false);
+                self.regs.set_flag_h(false);
+                self.regs.set_flag_c(false);
+            }
+            _ => panic!(
+                "unimplemented opcode: 0x{opcode:02X} at addr {:X}",
+                self.regs.pc
+            ),
         }
     }
 }

@@ -21,7 +21,7 @@ fn main() -> anyhow::Result<()> {
     let figs = Figs::parse();
     let rom = std::fs::read(&figs.rom_path)?;
     let cart = Cartridge::new(rom)?;
-    let bus = Bus { cartridge: cart };
+    let bus = Bus::new(cart);
 
     let mut cpu = Cpu::new(bus);
     for _ in 0..100 {

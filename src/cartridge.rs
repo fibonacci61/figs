@@ -317,6 +317,10 @@ impl Cartridge {
         })
     }
 
+    pub fn header_flags(&self) -> &HeaderFlags {
+        &self.header_flags
+    }
+
     pub fn read(&self, addr: u16) -> u8 {
         self.mbc.read(addr)
     }
