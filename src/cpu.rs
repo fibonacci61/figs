@@ -195,7 +195,7 @@ impl Cpu {
         ((hi as u16) << 8) | (lo as u16)
     }
 
-    fn inc(&mut self, reg: GpRegister) {
+    fn inc(&mut self, reg: GpRegister) -> u32 {
         self.regs
             .set_flag_h((self.regs.register(reg) & 0x0F) == 0x0F);
 
@@ -204,18 +204,20 @@ impl Cpu {
 
         self.regs.set_flag_z(self.regs.register(reg) == 0);
         self.regs.set_flag_n(false);
+        1
     }
 
-    fn dec(&mut self, reg: GpRegister) {
+    fn dec(&mut self, reg: GpRegister) -> u32 {
         self.regs.set_flag_h((self.regs.register(reg) & 0x0F) == 0);
         self.regs
             .set_register(reg, self.regs.register(reg).wrapping_sub(1));
 
         self.regs.set_flag_z(self.regs.register(reg) == 0);
         self.regs.set_flag_n(true);
+        1
     }
 
-    pub fn next(&mut self) {
+    pub fn next(&mut self) -> u32 {
         log::trace!("executing instruction at 0x{:04X}", self.regs.pc);
         println!(
             "A:{:02X} F:{:02X} B:{:02X} C:{:02X} D:{:02X} E:{:02X} H:{:02X} L:{:02X} SP:{:04X} PC:{:04X} PCMEM:{:02X},{:02X},{:02X},{:02X}",
@@ -237,39 +239,46 @@ impl Cpu {
         let opcode = self.fetch_byte();
         match opcode {
             // nop
-            0x00 => {}
+            0x00 => 1,
             // jp a16
             0xC3 => {
                 self.regs.pc = self.fetch_word();
                 log::trace!("jumped to addr 0x{:X}", self.regs.pc);
+                4
             }
             // di
             0xF3 => {
                 self.ime = false;
+                1
             }
             // ld sp, d16
             0x31 => {
                 self.regs.sp = self.fetch_word();
                 log::trace!("set sp to 0x{:X}", self.regs.sp);
+                3
             }
             // ld (a16), a
             0xEA => {
                 let addr = self.fetch_word();
                 self.bus.write(addr, self.regs.a);
+                4
             }
             // ld a, d8
             0x3E => {
                 self.regs.a = self.fetch_byte();
+                2
             }
             // ld (a8), a
             0xE0 => {
                 let addr = (self.fetch_byte() as u16) | 0xFF00;
                 self.bus.write(addr, self.regs.a);
+                3
             }
             // ld hl, d16
             0x21 => {
                 let value = self.fetch_word();
                 self.regs.set_hl(value);
+                3
             }
             // call a16
             0xCD => {
@@ -277,70 +286,85 @@ impl Cpu {
                 self.push_word(self.regs.pc);
                 self.regs.pc = addr;
                 log::trace!("called routine at addr 0x{addr:X}");
+                6
             }
             // ld a, l
             0x7D => {
                 self.regs.a = self.regs.l;
+                1
             }
             // ld a, h
             0x7C => {
                 self.regs.a = self.regs.h;
+                1
             }
             // jr s8
             0x18 => {
                 let offset = self.fetch_byte() as i8 as i16;
                 self.regs.pc = self.regs.pc.wrapping_add_signed(offset);
+                3
             }
             // ret
             0xC9 => {
                 let addr = self.pop_word();
                 self.regs.pc = addr;
                 log::trace!("returning to addr {addr:X}");
+                4
             }
             // push hl
             0xE5 => {
                 self.push_word(self.regs.hl());
+                4
             }
             // pop hl
             0xE1 => {
                 let value = self.pop_word();
                 self.regs.set_hl(value);
+                3
             }
             // push af
             0xF5 => {
                 self.push_word(self.regs.af());
+                4
             }
             // inc hl
             0x23 => {
                 self.regs.set_hl(self.regs.hl().wrapping_add(1));
+                2
             }
             // ld a, (hl+)
             0x2A => {
                 let value = self.bus.read(self.regs.hl());
                 self.regs.a = value;
                 self.regs.set_hl(self.regs.hl().wrapping_add(1));
+                2
             }
             // pop af
             0xF1 => {
                 let value = self.pop_word();
                 self.regs.set_af(value);
+                3
             }
             // push bc
             0xC5 => {
                 self.push_word(self.regs.bc());
+                4
             }
             // ld bc, d16
             0x01 => {
                 let value = self.fetch_word();
                 self.regs.set_bc(value);
+                3
             }
             // inc bc
             0x03 => {
                 self.regs.set_bc(self.regs.bc().wrapping_add(1));
+                2
             }
             // ld a, b
             0x78 => {
                 self.regs.a = self.regs.b;
+                1
             }
             // or c
             0xB1 => {
@@ -350,23 +374,29 @@ impl Cpu {
                 self.regs.set_flag_n(false);
                 self.regs.set_flag_h(false);
                 self.regs.set_flag_c(false);
+                1
             }
             // jr z, s8
             0x28 => {
                 let offset = self.fetch_byte() as i8 as i16;
                 if (self.regs.f & FLAG_Z) != 0 {
                     self.regs.pc = self.regs.pc.wrapping_add_signed(offset);
+                    3
+                } else {
+                    2
                 }
             }
             // pop bc
             0xC1 => {
                 let value = self.pop_word();
                 self.regs.set_bc(value);
+                3
             }
             // ld a, (a16)
             0xFA => {
                 let addr = self.fetch_word();
                 self.regs.a = self.bus.read(addr);
+                4
             }
             // and d8
             0xE6 => {
@@ -377,6 +407,7 @@ impl Cpu {
                 self.regs.set_flag_n(false);
                 self.regs.set_flag_h(true);
                 self.regs.set_flag_c(false);
+                2
             }
             // call nz, a16
             0xC4 => {
@@ -384,51 +415,57 @@ impl Cpu {
                 if (self.regs.f & FLAG_Z) == 0 {
                     self.push_word(self.regs.pc);
                     self.regs.pc = addr;
+                    6
+                } else {
+                    3
                 }
             }
             // ld b, d8
             0x06 => {
                 self.regs.b = self.fetch_byte();
+                2
             }
             // ld (hl), a
             0x77 => {
                 self.bus.write(self.regs.hl(), self.regs.a);
+                2
             }
             // inc l
-            0x2C => {
-                self.inc(GpRegister::L);
-            }
+            0x2C => self.inc(GpRegister::L),
             // jr nz, s8
             0x20 => {
                 let offset = self.fetch_byte() as i8 as i16;
                 if (self.regs.f & FLAG_Z) == 0 {
                     self.regs.pc = self.regs.pc.wrapping_add_signed(offset);
+                    3
+                } else {
+                    2
                 }
             }
             // inc h
-            0x24 => {
-                self.inc(GpRegister::H);
-            }
+            0x24 => self.inc(GpRegister::H),
             // dec b
-            0x05 => {
-                self.dec(GpRegister::B);
-            }
+            0x05 => self.dec(GpRegister::B),
             // ld c, d8
             0x0E => {
                 self.regs.c = self.fetch_byte();
+                2
             }
             // ld de, d16
             0x11 => {
                 let value = self.fetch_word();
                 self.regs.set_de(value);
+                3
             }
             // ld a, (de)
             0x1A => {
                 self.regs.a = self.bus.read(self.regs.de());
+                2
             }
             // inc de
             0x13 => {
-                self.regs.set_de(self.regs.de() + 1);
+                self.regs.set_de(self.regs.de().wrapping_add(1));
+                2
             }
             // xor c
             0xA9 => {
@@ -438,11 +475,13 @@ impl Cpu {
                 self.regs.set_flag_n(false);
                 self.regs.set_flag_h(false);
                 self.regs.set_flag_c(false);
+                1
             }
             // ld a, (a8)
             0xF0 => {
                 let addr = (self.fetch_byte() as u16) | 0xFF00;
                 self.regs.a = self.bus.read(addr);
+                3
             }
             // cp d8
             0xFE => {
@@ -453,53 +492,54 @@ impl Cpu {
                 self.regs.set_flag_n(true);
                 self.regs.set_flag_h((self.regs.a & 0x0F) < (value & 0x0F));
                 self.regs.set_flag_c(overflown);
+                2
             }
             // ld (hl-), a
             0x32 => {
                 self.bus.write(self.regs.hl(), self.regs.a);
                 self.regs.set_hl(self.regs.hl().wrapping_sub(1));
+                2
             }
             // jr c, s8
             0x38 => {
                 let offset = self.fetch_byte() as i8 as i16;
                 if (self.regs.f & FLAG_C) != 0 {
                     self.regs.pc = self.regs.pc.wrapping_add_signed(offset);
+                    3
+                } else {
+                    2
                 }
             }
             // ld a, (hl)
             0x7E => {
                 println!("{:#X?}", self.regs);
                 self.regs.a = self.bus.read(self.regs.hl());
+                2
             }
             // ld b, a
             0x47 => {
                 self.regs.b = self.regs.a;
+                1
             }
             // ld (de), a
             0x12 => {
                 self.bus.write(self.regs.de(), self.regs.a);
+                3
             }
             // inc e
-            0x1C => {
-                self.inc(GpRegister::E);
-            }
+            0x1C => self.inc(GpRegister::E),
             // inc d
-            0x14 => {
-                self.inc(GpRegister::D);
-            }
+            0x14 => self.inc(GpRegister::D),
             // dec c
-            0x0D => {
-                self.dec(GpRegister::C);
-            }
+            0x0D => self.dec(GpRegister::C),
             // ld (hl+), a
             0x22 => {
                 self.bus.write(self.regs.hl(), self.regs.a);
                 self.regs.set_hl(self.regs.hl().wrapping_add(1));
+                2
             }
             // inc a
-            0x3C => {
-                self.inc(GpRegister::A);
-            }
+            0x3C => self.inc(GpRegister::A),
             _ => panic!(
                 "unimplemented opcode: 0x{opcode:02X} at addr {:X}",
                 self.regs.pc
