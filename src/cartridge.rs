@@ -1,6 +1,4 @@
-use std::ops::Range;
-
-use anyhow::{anyhow, bail};
+use anyhow::bail;
 use bytemuck::{Pod, Zeroable};
 use log::{info, warn};
 
@@ -93,8 +91,6 @@ pub fn parse_rom_header<'a>(rom: &'a [u8]) -> anyhow::Result<Header<'a>> {
     })
 }
 
-const RAM_ENABLE_START: u16 = 0x0000;
-const RAM_ENABLE_END: u16 = 0x2000;
 const RAM_ENABLE_NIBBLE: u8 = 0xA;
 
 pub trait Mbc {
@@ -154,7 +150,7 @@ struct Mbc1 {
 
     // from HeaderFlags
     rom_size_flag: u8,
-    ram_size_flag: u8,
+    _ram_size_flag: u8,
     // if computed rom size > 512 KiB
     is_large_rom: bool,
     // if computed ram size > 8 KiB (0x2000, same size as 0xA000..0xC000)
@@ -164,7 +160,7 @@ struct Mbc1 {
 impl Mbc1 {
     const BANK_SIZE: usize = 0x4000;
 
-    fn new(rom: Vec<u8>, ram: bool, rom_size_flag: u8, ram_size_flag: u8) -> Self {
+    fn new(rom: Vec<u8>, ram: bool, rom_size_flag: u8, _ram_size_flag: u8) -> Self {
         Self {
             rom,
             ram: if ram { Some(Vec::new()) } else { None },
@@ -175,9 +171,9 @@ impl Mbc1 {
             banking_mode: 0,
 
             rom_size_flag,
-            ram_size_flag,
+            _ram_size_flag,
             is_large_rom: rom_size_flag >= 5,
-            is_large_ram: ram_size_flag >= 2,
+            is_large_ram: _ram_size_flag >= 2,
         }
     }
 
@@ -315,6 +311,10 @@ impl Cartridge {
             title,
             header_flags,
         })
+    }
+
+    pub fn title(&self) -> &str {
+        &self.title
     }
 
     pub fn header_flags(&self) -> &HeaderFlags {
