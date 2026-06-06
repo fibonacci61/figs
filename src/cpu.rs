@@ -1,5 +1,6 @@
 use crate::bus::Bus;
 
+#[derive(Debug)]
 pub struct Registers {
     pub a: u8,
     pub f: u8,
@@ -99,6 +100,7 @@ impl Registers {
             self.f &= !FLAG_N
         }
     }
+
     pub fn set_flag_h(&mut self, value: bool) {
         if value {
             self.f |= FLAG_H;
@@ -113,6 +115,41 @@ impl Registers {
             self.f &= !FLAG_C
         }
     }
+
+    pub fn register(&self, reg: GpRegister) -> u8 {
+        match reg {
+            GpRegister::A => self.a,
+            GpRegister::B => self.b,
+            GpRegister::C => self.c,
+            GpRegister::D => self.d,
+            GpRegister::E => self.e,
+            GpRegister::H => self.h,
+            GpRegister::L => self.l,
+        }
+    }
+
+    pub fn set_register(&mut self, reg: GpRegister, value: u8) {
+        match reg {
+            GpRegister::A => self.a = value,
+            GpRegister::B => self.b = value,
+            GpRegister::C => self.c = value,
+            GpRegister::D => self.d = value,
+            GpRegister::E => self.e = value,
+            GpRegister::H => self.h = value,
+            GpRegister::L => self.l = value,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum GpRegister {
+    A,
+    B,
+    C,
+    D,
+    E,
+    H,
+    L,
 }
 
 impl Cpu {
@@ -158,7 +195,45 @@ impl Cpu {
         ((hi as u16) << 8) | (lo as u16)
     }
 
+    fn inc(&mut self, reg: GpRegister) {
+        self.regs
+            .set_flag_h((self.regs.register(reg) & 0x0F) == 0x0F);
+
+        self.regs
+            .set_register(reg, self.regs.register(reg).wrapping_add(1));
+
+        self.regs.set_flag_z(self.regs.register(reg) == 0);
+        self.regs.set_flag_n(false);
+    }
+
+    fn dec(&mut self, reg: GpRegister) {
+        self.regs.set_flag_h((self.regs.register(reg) & 0x0F) == 0);
+        self.regs
+            .set_register(reg, self.regs.register(reg).wrapping_sub(1));
+
+        self.regs.set_flag_z(self.regs.register(reg) == 0);
+        self.regs.set_flag_n(true);
+    }
+
     pub fn next(&mut self) {
+        log::trace!("executing instruction at 0x{:04X}", self.regs.pc);
+        println!(
+            "A:{:02X} F:{:02X} B:{:02X} C:{:02X} D:{:02X} E:{:02X} H:{:02X} L:{:02X} SP:{:04X} PC:{:04X} PCMEM:{:02X},{:02X},{:02X},{:02X}",
+            self.regs.a,
+            self.regs.f,
+            self.regs.b,
+            self.regs.c,
+            self.regs.d,
+            self.regs.e,
+            self.regs.h,
+            self.regs.l,
+            self.regs.sp,
+            self.regs.pc,
+            self.bus.read(self.regs.pc),
+            self.bus.read(self.regs.pc + 1),
+            self.bus.read(self.regs.pc + 2),
+            self.bus.read(self.regs.pc + 3),
+        );
         let opcode = self.fetch_byte();
         match opcode {
             // nop
@@ -213,7 +288,7 @@ impl Cpu {
             }
             // jr s8
             0x18 => {
-                let offset = self.fetch_byte() as i16;
+                let offset = self.fetch_byte() as i8 as i16;
                 self.regs.pc = self.regs.pc.wrapping_add_signed(offset);
             }
             // ret
@@ -243,7 +318,7 @@ impl Cpu {
             0x2A => {
                 let value = self.bus.read(self.regs.hl());
                 self.regs.a = value;
-                self.regs.set_hl(self.regs.hl() + 1);
+                self.regs.set_hl(self.regs.hl().wrapping_add(1));
             }
             // pop af
             0xF1 => {
@@ -261,7 +336,7 @@ impl Cpu {
             }
             // inc bc
             0x03 => {
-                self.regs.set_bc(self.regs.bc() + 1);
+                self.regs.set_bc(self.regs.bc().wrapping_add(1));
             }
             // ld a, b
             0x78 => {
@@ -278,7 +353,7 @@ impl Cpu {
             }
             // jr z, s8
             0x28 => {
-                let offset = self.fetch_byte() as i16;
+                let offset = self.fetch_byte() as i8 as i16;
                 if (self.regs.f & FLAG_Z) != 0 {
                     self.regs.pc = self.regs.pc.wrapping_add_signed(offset);
                 }
@@ -321,34 +396,22 @@ impl Cpu {
             }
             // inc l
             0x2C => {
-                self.regs.l = self.regs.l.wrapping_add(1);
-
-                self.regs.set_flag_z(self.regs.l == 0);
-                self.regs.set_flag_n(false);
-                self.regs.set_flag_h(self.regs.l == 0x10);
+                self.inc(GpRegister::L);
             }
             // jr nz, s8
             0x20 => {
-                let offset = self.fetch_byte() as i16;
+                let offset = self.fetch_byte() as i8 as i16;
                 if (self.regs.f & FLAG_Z) == 0 {
                     self.regs.pc = self.regs.pc.wrapping_add_signed(offset);
                 }
             }
             // inc h
             0x24 => {
-                self.regs.set_flag_h(self.regs.h == 0x0F);
-                self.regs.h = self.regs.h.wrapping_add(1);
-
-                self.regs.set_flag_z(self.regs.h == 0);
-                self.regs.set_flag_n(false);
+                self.inc(GpRegister::H);
             }
             // dec b
             0x05 => {
-                self.regs.set_flag_h((self.regs.b & 0x0F) == 0);
-                self.regs.b = self.regs.b.wrapping_sub(1);
-
-                self.regs.set_flag_z(self.regs.h == 0);
-                self.regs.set_flag_n(true);
+                self.dec(GpRegister::B);
             }
             // ld c, d8
             0x0E => {
@@ -375,6 +438,67 @@ impl Cpu {
                 self.regs.set_flag_n(false);
                 self.regs.set_flag_h(false);
                 self.regs.set_flag_c(false);
+            }
+            // ld a, (a8)
+            0xF0 => {
+                let addr = (self.fetch_byte() as u16) | 0xFF00;
+                self.regs.a = self.bus.read(addr);
+            }
+            // cp d8
+            0xFE => {
+                let value = self.fetch_byte();
+                let (result, overflown) = self.regs.a.overflowing_sub(value);
+
+                self.regs.set_flag_z(result == 0);
+                self.regs.set_flag_n(true);
+                self.regs.set_flag_h((self.regs.a & 0x0F) < (value & 0x0F));
+                self.regs.set_flag_c(overflown);
+            }
+            // ld (hl-), a
+            0x32 => {
+                self.bus.write(self.regs.hl(), self.regs.a);
+                self.regs.set_hl(self.regs.hl().wrapping_sub(1));
+            }
+            // jr c, s8
+            0x38 => {
+                let offset = self.fetch_byte() as i8 as i16;
+                if (self.regs.f & FLAG_C) != 0 {
+                    self.regs.pc = self.regs.pc.wrapping_add_signed(offset);
+                }
+            }
+            // ld a, (hl)
+            0x7E => {
+                println!("{:#X?}", self.regs);
+                self.regs.a = self.bus.read(self.regs.hl());
+            }
+            // ld b, a
+            0x47 => {
+                self.regs.b = self.regs.a;
+            }
+            // ld (de), a
+            0x12 => {
+                self.bus.write(self.regs.de(), self.regs.a);
+            }
+            // inc e
+            0x1C => {
+                self.inc(GpRegister::E);
+            }
+            // inc d
+            0x14 => {
+                self.inc(GpRegister::D);
+            }
+            // dec c
+            0x0D => {
+                self.dec(GpRegister::C);
+            }
+            // ld (hl+), a
+            0x22 => {
+                self.bus.write(self.regs.hl(), self.regs.a);
+                self.regs.set_hl(self.regs.hl().wrapping_add(1));
+            }
+            // inc a
+            0x3C => {
+                self.inc(GpRegister::A);
             }
             _ => panic!(
                 "unimplemented opcode: 0x{opcode:02X} at addr {:X}",
