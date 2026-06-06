@@ -6,3 +6,4 @@ the hardware level.
 The following resources were used in the development of FIGS:
 - https://gbdev.io/pandocs/
 - https://meganesu.github.io/generate-gb-opcodes/
+- https://rgbds.gbdev.io/docs/v1.0.1/gbz80.7
