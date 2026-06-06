@@ -270,7 +270,11 @@ impl Cpu {
             // or c
             0xB1 => {
                 self.regs.a |= self.regs.c;
+
                 self.regs.set_flag_z(self.regs.a == 0);
+                self.regs.set_flag_n(false);
+                self.regs.set_flag_h(false);
+                self.regs.set_flag_c(false);
             }
             // jr z, s8
             0x28 => {
