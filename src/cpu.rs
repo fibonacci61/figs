@@ -217,7 +217,7 @@ impl Cpu {
         1
     }
 
-    pub fn next(&mut self) -> u32 {
+    pub fn step(&mut self) -> u32 {
         log::trace!("executing instruction at 0x{:04X}", self.regs.pc);
         println!(
             "A:{:02X} F:{:02X} B:{:02X} C:{:02X} D:{:02X} E:{:02X} H:{:02X} L:{:02X} SP:{:04X} PC:{:04X} PCMEM:{:02X},{:02X},{:02X},{:02X}",
