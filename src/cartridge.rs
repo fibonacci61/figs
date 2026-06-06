@@ -166,7 +166,7 @@ impl Mbc1 {
             ram: if ram { Some(Vec::new()) } else { None },
 
             ram_enabled: false,
-            rom_bank_number: 0,
+            rom_bank_number: 1,
             secondary_bank: 0,
             banking_mode: 0,
 
