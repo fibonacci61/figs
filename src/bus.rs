@@ -27,6 +27,11 @@ impl Bus {
     }
 
     pub fn read(&self, addr: u16) -> u8 {
+        // reject any non-hram reads/writes while dma is working
+        if self.dma.is_working() && !(0xFF80..0xFFFF).contains(&addr) {
+            return 0xFF;
+        }
+
         // suppresses warning for hram pattern
         #[allow(non_contiguous_range_endpoints)]
         match addr {
@@ -47,6 +52,11 @@ impl Bus {
     }
 
     pub fn write(&mut self, addr: u16, value: u8) {
+        // reject any non-hram reads/writes while dma is working
+        if self.dma.is_working() && !(0xFF80..0xFFFF).contains(&addr) {
+            return;
+        }
+
         // suppresses warning for hram pattern
         #[allow(non_contiguous_range_endpoints)]
         match addr {

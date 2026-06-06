@@ -31,6 +31,10 @@ impl Dma {
         })
     }
 
+    pub fn is_working(&self) -> bool {
+        self.current_op.is_some()
+    }
+
     pub fn step(&mut self, cycles: u32) -> DmaState {
         match self.current_op.as_mut() {
             Some(op) => {
