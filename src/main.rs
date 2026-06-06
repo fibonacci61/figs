@@ -1,6 +1,7 @@
 mod bus;
 mod cartridge;
 mod cpu;
+mod dma;
 
 use std::path::PathBuf;
 
@@ -28,7 +29,9 @@ fn main() -> anyhow::Result<()> {
     let bus = Bus::new(cart);
     let mut cpu = Cpu::new(bus);
     for _ in 0..32000 {
-        let _machine_cycles = cpu.step();
+        let machine_cycles = cpu.step();
+        let cycles = machine_cycles * 4;
+        cpu.step_dma(cycles);
     }
 
     Ok(())

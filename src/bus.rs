@@ -1,4 +1,4 @@
-use crate::cartridge::Cartridge;
+use crate::{cartridge::Cartridge, dma::Dma};
 
 pub const WRAM_LEN: usize = 0x2000;
 
@@ -11,6 +11,7 @@ pub enum MaybeInitByte {
 pub struct Bus {
     pub cartridge: Cartridge,
     pub wram: [MaybeInitByte; WRAM_LEN],
+    pub dma: Dma,
 }
 
 impl Bus {
@@ -18,6 +19,7 @@ impl Bus {
         Self {
             cartridge,
             wram: [const { MaybeInitByte::Uninit }; WRAM_LEN],
+            dma: Dma::new(),
         }
     }
 
@@ -34,8 +36,14 @@ impl Bus {
 
     pub fn write(&mut self, addr: u16, value: u8) {
         match addr {
+            // cartridge ROM and RAM
             0x0000..0x8000 | 0xA000..0xC000 => self.cartridge.write(addr, value),
+            // WRAM
             0xC000..0xE000 => self.wram[(addr as usize) - 0xC000] = MaybeInitByte::Init(value),
+            // OAM DMA
+            0xFF46 => {
+                self.dma.assign_op((value as u16) * 0x100);
+            }
             _ => {
                 log::warn!("attempt to write value {value:X} to unmapped addr {addr:X}")
             }

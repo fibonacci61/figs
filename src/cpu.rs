@@ -1,4 +1,7 @@
-use crate::bus::Bus;
+use crate::{
+    bus::Bus,
+    dma::{DEST_BASE_ADDR, DmaState, PAYLOAD_SIZE},
+};
 
 #[derive(Debug)]
 pub struct Registers {
@@ -544,6 +547,19 @@ impl Cpu {
                 "unimplemented opcode: 0x{opcode:02X} at addr {:X}",
                 self.regs.pc
             ),
+        }
+    }
+
+    pub fn step_dma(&mut self, cycles: u32) {
+        match self.bus.dma.step(cycles) {
+            // maybe merge these two states together?
+            DmaState::Free | DmaState::Working => {}
+            DmaState::Done { src_addr } => {
+                for i in 0..PAYLOAD_SIZE {
+                    let value = self.bus.read(src_addr + i);
+                    self.bus.write(DEST_BASE_ADDR + i, value);
+                }
+            }
         }
     }
 }
