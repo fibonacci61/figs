@@ -1,5 +1,6 @@
 use crate::{cartridge::Cartridge, dma::Dma};
 
+pub const VRAM_LEN: usize = 0x2000;
 pub const WRAM_LEN: usize = 0x2000;
 pub const HRAM_LEN: usize = 0x7F;
 
@@ -11,6 +12,7 @@ pub enum MaybeInitByte {
 
 pub struct Bus {
     pub cartridge: Cartridge,
+    pub vram: [u8; VRAM_LEN],
     pub wram: [MaybeInitByte; WRAM_LEN],
     pub hram: [MaybeInitByte; HRAM_LEN],
     pub dma: Dma,
@@ -21,6 +23,10 @@ impl Bus {
         Self {
             cartridge,
             wram: [const { MaybeInitByte::Uninit }; WRAM_LEN],
+            // This is a simplification, a real Game Boy would display the Nintendo logo and scroll
+            // it downwards. However most ROMs should initialize VRAM themselves so it shouldn't
+            // matter.
+            vram: [0; VRAM_LEN],
             hram: [const { MaybeInitByte::Uninit }; HRAM_LEN],
             dma: Dma::new(),
         }
@@ -37,6 +43,8 @@ impl Bus {
         match addr {
             // cartridge ROM and RAM
             0x0000..0x8000 | 0xA000..0xC000 => self.cartridge.read(addr),
+            // VRAM
+            0x8000..0xA000 => self.vram[(addr as usize) - 0x8000],
             // WRAM
             0xC000..0xE000 => match self.wram[(addr as usize) - 0xC000] {
                 MaybeInitByte::Uninit => panic!("attempt to read uninit memory"),
@@ -62,12 +70,15 @@ impl Bus {
         match addr {
             // cartridge ROM and RAM
             0x0000..0x8000 | 0xA000..0xC000 => self.cartridge.write(addr, value),
+            // VRAM
+            0x8000..0xA000 => self.vram[(addr as usize) - 0x8000] = value,
             // WRAM
             0xC000..0xE000 => self.wram[(addr as usize) - 0xC000] = MaybeInitByte::Init(value),
             // OAM DMA
             0xFF46 => {
                 self.dma.assign_op((value as u16) * 0x100);
             }
+            // HRAM
             0xFF80..0xFFFF => self.hram[(addr as usize) - 0xFF80] = MaybeInitByte::Init(value),
             _ => {
                 log::warn!("attempt to write value {value:X} to unmapped addr {addr:X}")
