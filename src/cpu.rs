@@ -1,3 +1,5 @@
+use std::{cell::RefCell, collections::VecDeque, rc::Rc};
+
 use crate::{
     bus::Bus,
     dma::{DEST_BASE_ADDR, DmaState, PAYLOAD_SIZE},
@@ -17,6 +19,12 @@ pub struct Registers {
     pub pc: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Interrupt {
+    Stat,
+    VBlank,
+}
+
 pub struct Cpu {
     regs: Registers,
     bus: Bus,
@@ -24,6 +32,8 @@ pub struct Cpu {
     // interrupt master enable
     // enables/disables all non maskable interrupts
     ime: bool,
+
+    int_queue: Rc<RefCell<VecDeque<Interrupt>>>,
 }
 
 const FLAG_Z: u8 = 0x80;
@@ -156,11 +166,12 @@ pub enum GpRegister {
 }
 
 impl Cpu {
-    pub fn new(bus: Bus) -> Self {
+    pub fn new(bus: Bus, int_queue: Rc<RefCell<VecDeque<Interrupt>>>) -> Self {
         Self {
             regs: Registers::new(bus.cartridge.header_flags().header_checksum),
             bus,
             ime: false,
+            int_queue,
         }
     }
 
@@ -548,6 +559,10 @@ impl Cpu {
                 self.regs.pc
             ),
         }
+    }
+
+    pub fn step_ppu(&mut self) {
+        self.bus.ppu.step();
     }
 
     pub fn step_dma(&mut self, cycles: u32) {
