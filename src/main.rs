@@ -4,7 +4,7 @@ mod cpu;
 mod dma;
 mod ppu;
 
-use std::{cell::RefCell, collections::VecDeque, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use clap::Parser;
 use log::info;
@@ -13,7 +13,7 @@ use minifb::WindowOptions;
 use crate::{
     bus::Bus,
     cartridge::Cartridge,
-    cpu::Cpu,
+    cpu::{Cpu, IrqHolder},
     ppu::{Ppu, SCREEN_HEIGHT, SCREEN_WIDTH},
 };
 
@@ -44,10 +44,10 @@ fn main() -> anyhow::Result<()> {
     )
     .unwrap();
 
-    let int_queue = Rc::new(RefCell::new(VecDeque::new()));
-    let ppu = Ppu::new(window, Rc::clone(&int_queue));
-    let bus = Bus::new(cart, ppu, figs.gameboy_doctor);
-    let mut cpu = Cpu::new(bus, int_queue);
+    let irq_holder = Rc::new(RefCell::new(IrqHolder::new()));
+    let ppu = Ppu::new(window, Rc::clone(&irq_holder));
+    let bus = Bus::new(cart, ppu, irq_holder, figs.gameboy_doctor);
+    let mut cpu = Cpu::new(bus);
     loop {
         let machine_cycles = cpu.step();
         let cycles = machine_cycles * 4;

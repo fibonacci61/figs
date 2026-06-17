@@ -1,5 +1,3 @@
-use std::{cell::RefCell, collections::VecDeque, rc::Rc};
-
 use crate::{
     bus::Bus,
     dma::{DEST_BASE_ADDR, DmaState, PAYLOAD_SIZE},
@@ -19,10 +17,40 @@ pub struct Registers {
     pub pc: u16,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Interrupt {
-    Stat,
-    VBlank,
+#[bitfields::bitfield(u8)]
+pub struct IntFlags {
+    #[bits(3)]
+    _reserved: u8,
+    pub joypad: bool,
+    pub serial: bool,
+    pub timer: bool,
+    pub lcd: bool,
+    pub vblank: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct IrqHolder(IntFlags);
+
+impl IrqHolder {
+    pub fn new() -> Self {
+        Self(IntFlags::new())
+    }
+
+    pub fn from_bits(bits: u8) -> Self {
+        Self(IntFlags::from_bits(bits))
+    }
+
+    pub fn request_vblank(&mut self) {
+        self.0.set_vblank(true);
+    }
+
+    pub fn request_lcd(&mut self) {
+        self.0.set_lcd(true);
+    }
+
+    pub fn as_if(&self) -> u8 {
+        self.0.into_bits()
+    }
 }
 
 pub struct Cpu {
@@ -33,7 +61,7 @@ pub struct Cpu {
     // enables/disables all non maskable interrupts
     ime: bool,
 
-    int_queue: Rc<RefCell<VecDeque<Interrupt>>>,
+    prev_irq_holder: IrqHolder,
 }
 
 const FLAG_Z: u8 = 0x80;
@@ -122,6 +150,7 @@ impl Registers {
             self.f &= !FLAG_H
         }
     }
+
     pub fn set_flag_c(&mut self, value: bool) {
         if value {
             self.f |= FLAG_C;
@@ -156,12 +185,12 @@ pub enum PrefixRegister {
 }
 
 impl Cpu {
-    pub fn new(bus: Bus, int_queue: Rc<RefCell<VecDeque<Interrupt>>>) -> Self {
+    pub fn new(bus: Bus) -> Self {
         Self {
             regs: Registers::new(bus.cartridge.header_flags().header_checksum),
             bus,
             ime: false,
-            int_queue,
+            prev_irq_holder: IrqHolder::new(),
         }
     }
 
@@ -371,6 +400,30 @@ impl Cpu {
     }
 
     pub fn step(&mut self) -> u32 {
+        if self.ime {
+            let mut irq_holder = self.bus.irq_holder.borrow_mut();
+            let irq_holder_bits = irq_holder.0.into_bits();
+            let complement = irq_holder_bits ^ self.prev_irq_holder.0.into_bits();
+            let ie_bits = self.bus.ie.into_bits();
+
+            self.prev_irq_holder = *irq_holder;
+
+            for bit in 0..5 {
+                let mask = 1 << bit;
+                // if if.bit is set, and on a falling edge, and ie.bit is set:
+                if irq_holder_bits & mask != 0 && complement & mask != 0 && ie_bits & mask != 0 {
+                    irq_holder.0 = IntFlags::from_bits(irq_holder_bits & !mask);
+                    drop(irq_holder);
+
+                    self.ime = false;
+                    let isr_addr = 0x40 + bit * 0x08;
+                    self.push_word(self.regs.pc);
+                    self.regs.pc = isr_addr;
+                    return 5;
+                }
+            }
+        }
+
         log::trace!("executing instruction at 0x{:04X}", self.regs.pc);
         println!(
             "A:{:02X} F:{:02X} B:{:02X} C:{:02X} D:{:02X} E:{:02X} H:{:02X} L:{:02X} SP:{:04X} PC:{:04X} PCMEM:{:02X},{:02X},{:02X},{:02X}",

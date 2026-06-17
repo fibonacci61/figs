@@ -4,7 +4,7 @@ use bitflags::bitflags;
 use bytemuck::{Pod, Zeroable};
 use minifb::Window;
 
-use crate::{bus::VRAM_LEN, cpu::Interrupt};
+use crate::{bus::VRAM_LEN, cpu::IrqHolder};
 
 pub const OAM_LEN: usize = 40;
 pub const SCREEN_WIDTH: usize = 160;
@@ -134,7 +134,7 @@ struct SpritePixel {
 pub struct Ppu {
     window: Window,
     fb: [u32; SCREEN_HEIGHT * SCREEN_WIDTH],
-    int_queue: Rc<RefCell<VecDeque<Interrupt>>>,
+    irq_holder: Rc<RefCell<IrqHolder>>,
 
     vram: [u8; VRAM_LEN],
     oam: [ObjectAttribute; OAM_LEN],
@@ -191,7 +191,7 @@ const TILE_LEN: usize = 16;
 const OBJ_Y_OFFSET: u8 = 16;
 
 impl Ppu {
-    pub fn new(mut window: Window, int_queue: Rc<RefCell<VecDeque<Interrupt>>>) -> Self {
+    pub fn new(mut window: Window, irq_holder: Rc<RefCell<IrqHolder>>) -> Self {
         let fb = [0; SCREEN_WIDTH * SCREEN_HEIGHT];
         window
             .update_with_buffer(&fb, SCREEN_WIDTH, SCREEN_HEIGHT)
@@ -199,7 +199,7 @@ impl Ppu {
         Self {
             window,
             fb,
-            int_queue,
+            irq_holder,
             vram: [0; VRAM_LEN],
             oam: [ObjectAttribute::zeroed(); OAM_LEN],
             // can be thought of as representing how many dots been completed
@@ -755,8 +755,7 @@ impl Ppu {
         let new_stat_line = self.compute_stat_line();
         // rising edge detection
         if new_stat_line && new_stat_line != self.stat_line {
-            self.int_queue.borrow_mut().push_back(Interrupt::Stat);
-            println!("fired stat int");
+            self.irq_holder.borrow_mut().request_lcd();
         }
         self.stat_line = new_stat_line;
 
@@ -765,8 +764,7 @@ impl Ppu {
 
             // fire vblank interrupt if we just entered vblank
             if self.dot == 0 {
-                self.int_queue.borrow_mut().push_back(Interrupt::VBlank);
-                println!("fired vblank int");
+                self.irq_holder.borrow_mut().request_vblank();
             }
             // we can't set dot=0 since the conditional above relies on it corresponding to the
             // start of vblank, so we use modular arithmetic to check for the line ending instead

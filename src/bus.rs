@@ -1,4 +1,11 @@
-use crate::{cartridge::Cartridge, dma::Dma, ppu::Ppu};
+use std::{cell::RefCell, rc::Rc};
+
+use crate::{
+    cartridge::Cartridge,
+    cpu::{IntFlags, IrqHolder},
+    dma::Dma,
+    ppu::Ppu,
+};
 
 pub const VRAM_LEN: usize = 0x2000;
 pub const WRAM_LEN: usize = 0x2000;
@@ -16,11 +23,18 @@ pub struct Bus {
     pub wram: [MaybeInitByte; WRAM_LEN],
     pub hram: [MaybeInitByte; HRAM_LEN],
     pub dma: Dma,
+    pub irq_holder: Rc<RefCell<IrqHolder>>,
+    pub ie: IntFlags,
     pub gameboy_doctor: bool,
 }
 
 impl Bus {
-    pub fn new(cartridge: Cartridge, ppu: Ppu, gameboy_doctor: bool) -> Self {
+    pub fn new(
+        cartridge: Cartridge,
+        ppu: Ppu,
+        irq_holder: Rc<RefCell<IrqHolder>>,
+        gameboy_doctor: bool,
+    ) -> Self {
         Self {
             cartridge,
             wram: [const { MaybeInitByte::Uninit }; WRAM_LEN],
@@ -30,6 +44,8 @@ impl Bus {
             ppu,
             hram: [const { MaybeInitByte::Uninit }; HRAM_LEN],
             dma: Dma::new(),
+            irq_holder,
+            ie: IntFlags::new(),
             gameboy_doctor,
         }
     }
@@ -62,6 +78,8 @@ impl Bus {
                 .oam()
                 .map(|oam| oam[(addr as usize) - 0xFE00])
                 .unwrap_or(0xFF),
+            // IF
+            0xFF0F => self.irq_holder.borrow().as_if(),
             // LCDC
             0xFF40 => self.ppu.lcdc(),
             // STAT
@@ -98,6 +116,8 @@ impl Bus {
                 MaybeInitByte::Uninit => panic!("attempt to read uninit memory"),
                 MaybeInitByte::Init(v) => v,
             },
+            // IE
+            0xFFFF => self.ie.into_bits(),
             _ => 0xFF,
         }
     }
@@ -127,6 +147,8 @@ impl Bus {
                     oam[(addr as usize) - 0xFE00] = value;
                 }
             }
+            // IF
+            0xFF0F => *self.irq_holder.borrow_mut() = IrqHolder::from_bits(value),
             // LCDC
             0xFF40 => self.ppu.set_lcdc(value),
             // STAT
@@ -153,6 +175,8 @@ impl Bus {
             0xFF4B => self.ppu.wy = value,
             // HRAM
             0xFF80..0xFFFF => self.hram[(addr as usize) - 0xFF80] = MaybeInitByte::Init(value),
+            // IE
+            0xFFFF => self.ie = IntFlags::from_bits(value),
             _ => {
                 log::warn!("attempt to write value {value:X} to unmapped addr {addr:X}")
             }
