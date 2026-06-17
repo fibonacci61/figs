@@ -20,6 +20,9 @@ use crate::{
 #[derive(Parser)]
 #[command(version, about)]
 struct Figs {
+    /// Hardcodes `LY` register to 0x90 to comply with Gameboy Doctor for testing
+    #[arg(short, long)]
+    gameboy_doctor: bool,
     /// Path to Game Boy ROM
     rom_path: PathBuf,
 }
@@ -43,9 +46,9 @@ fn main() -> anyhow::Result<()> {
 
     let int_queue = Rc::new(RefCell::new(VecDeque::new()));
     let ppu = Ppu::new(window, Rc::clone(&int_queue));
-    let bus = Bus::new(cart, ppu);
+    let bus = Bus::new(cart, ppu, figs.gameboy_doctor);
     let mut cpu = Cpu::new(bus, int_queue);
-    for _ in 0..32000 {
+    loop {
         let machine_cycles = cpu.step();
         let cycles = machine_cycles * 4;
 
@@ -55,6 +58,4 @@ fn main() -> anyhow::Result<()> {
 
         cpu.step_dma(cycles);
     }
-
-    Ok(())
 }

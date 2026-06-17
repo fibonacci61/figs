@@ -756,6 +756,7 @@ impl Ppu {
         // rising edge detection
         if new_stat_line && new_stat_line != self.stat_line {
             self.int_queue.borrow_mut().push_back(Interrupt::Stat);
+            println!("fired stat int");
         }
         self.stat_line = new_stat_line;
 
@@ -765,6 +766,7 @@ impl Ppu {
             // fire vblank interrupt if we just entered vblank
             if self.dot == 0 {
                 self.int_queue.borrow_mut().push_back(Interrupt::VBlank);
+                println!("fired vblank int");
             }
             // we can't set dot=0 since the conditional above relies on it corresponding to the
             // start of vblank, so we use modular arithmetic to check for the line ending instead

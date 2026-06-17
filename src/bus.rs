@@ -16,10 +16,11 @@ pub struct Bus {
     pub wram: [MaybeInitByte; WRAM_LEN],
     pub hram: [MaybeInitByte; HRAM_LEN],
     pub dma: Dma,
+    pub gameboy_doctor: bool,
 }
 
 impl Bus {
-    pub fn new(cartridge: Cartridge, ppu: Ppu) -> Self {
+    pub fn new(cartridge: Cartridge, ppu: Ppu, gameboy_doctor: bool) -> Self {
         Self {
             cartridge,
             wram: [const { MaybeInitByte::Uninit }; WRAM_LEN],
@@ -29,6 +30,7 @@ impl Bus {
             ppu,
             hram: [const { MaybeInitByte::Uninit }; HRAM_LEN],
             dma: Dma::new(),
+            gameboy_doctor,
         }
     }
 
@@ -69,7 +71,14 @@ impl Bus {
             // SCX
             0xFF43 => self.ppu.scroll_x,
             // LY
-            0xFF44 => self.ppu.ly(),
+            0xFF44 => {
+                // Gameboy Doctor compliance
+                if self.gameboy_doctor {
+                    0x90
+                } else {
+                    self.ppu.ly()
+                }
+            }
             // LYC
             0xFF45 => self.ppu.lyc,
             // OAM DMA
