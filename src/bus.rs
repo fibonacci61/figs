@@ -73,7 +73,14 @@ impl Bus {
                 .unwrap_or(0xFF),
             // WRAM
             0xC000..0xE000 => match self.wram[(addr as usize) - 0xC000] {
-                MaybeInitByte::Uninit => panic!("attempt to read uninit memory"),
+                MaybeInitByte::Uninit => {
+                    if self.gameboy_doctor {
+                        log::warn!("attempt to read uninit memory at addr {:X}", addr);
+                        0x00
+                    } else {
+                        panic!("attempt to read uninit memory at addr {:X}", addr);
+                    }
+                }
                 MaybeInitByte::Init(v) => v,
             },
             // OAM
@@ -125,7 +132,14 @@ impl Bus {
             0xFF4B => self.ppu.wy,
             // HRAM
             0xFF80..0xFFFF => match self.hram[(addr as usize) - 0xFF80] {
-                MaybeInitByte::Uninit => panic!("attempt to read uninit memory"),
+                MaybeInitByte::Uninit => {
+                    if self.gameboy_doctor {
+                        log::warn!("attempt to read uninit memory at addr {:X}", addr);
+                        0x00
+                    } else {
+                        panic!("attempt to read uninit memory at addr {:X}", addr);
+                    }
+                }
                 MaybeInitByte::Init(v) => v,
             },
             // IE
