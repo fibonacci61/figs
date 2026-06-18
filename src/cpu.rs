@@ -166,7 +166,7 @@ impl Registers {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GpRegister {
     A,
     B,
@@ -178,16 +178,20 @@ pub enum GpRegister {
     HlMem,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum PrefixRegister {
-    B,
-    C,
-    D,
-    E,
-    H,
-    L,
-    LdHl,
-    A,
+impl GpRegister {
+    pub fn from_opcode_low(opcode: u8) -> Self {
+        match opcode & 0x07 {
+            0x0 => Self::B,
+            0x1 => Self::C,
+            0x2 => Self::D,
+            0x3 => Self::E,
+            0x4 => Self::H,
+            0x5 => Self::L,
+            0x6 => Self::HlMem,
+            0x7 => Self::A,
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl Cpu {
@@ -199,32 +203,6 @@ impl Cpu {
             prev_irq_holder: IrqHolder::new(),
             halt: false,
             gameboy_doctor,
-        }
-    }
-
-    fn prefix_reg(&self, reg: PrefixRegister) -> u8 {
-        match reg {
-            PrefixRegister::B => self.regs.b,
-            PrefixRegister::C => self.regs.c,
-            PrefixRegister::D => self.regs.d,
-            PrefixRegister::E => self.regs.e,
-            PrefixRegister::H => self.regs.h,
-            PrefixRegister::L => self.regs.l,
-            PrefixRegister::LdHl => self.bus.read(self.regs.hl()),
-            PrefixRegister::A => self.regs.a,
-        }
-    }
-
-    fn set_prefix_reg(&mut self, reg: PrefixRegister, value: u8) {
-        match reg {
-            PrefixRegister::B => self.regs.b = value,
-            PrefixRegister::C => self.regs.c = value,
-            PrefixRegister::D => self.regs.d = value,
-            PrefixRegister::E => self.regs.e = value,
-            PrefixRegister::H => self.regs.h = value,
-            PrefixRegister::L => self.regs.l = value,
-            PrefixRegister::LdHl => self.bus.write(self.regs.hl(), value),
-            PrefixRegister::A => self.regs.a = value,
         }
     }
 
@@ -349,21 +327,21 @@ impl Cpu {
         self.regs.set_flag_c(false);
     }
 
-    fn bit(&mut self, reg: PrefixRegister, bit: u8) -> u32 {
-        self.regs.set_flag_z(self.prefix_reg(reg) & (1 << bit) == 0);
+    fn bit(&mut self, reg: GpRegister, bit: u8) -> u32 {
+        self.regs.set_flag_z(self.register(reg) & (1 << bit) == 0);
         self.regs.set_flag_n(false);
         self.regs.set_flag_h(true);
-        if reg == PrefixRegister::LdHl { 3 } else { 2 }
+        if reg == GpRegister::HlMem { 3 } else { 2 }
     }
 
-    fn res(&mut self, reg: PrefixRegister, bit: u8) -> u32 {
-        self.set_prefix_reg(reg, self.prefix_reg(reg) & !(1 << bit));
-        if reg == PrefixRegister::LdHl { 4 } else { 2 }
+    fn res(&mut self, reg: GpRegister, bit: u8) -> u32 {
+        self.set_register(reg, self.register(reg) & !(1 << bit));
+        if reg == GpRegister::HlMem { 4 } else { 2 }
     }
 
-    fn set(&mut self, reg: PrefixRegister, bit: u8) -> u32 {
-        self.set_prefix_reg(reg, self.prefix_reg(reg) | (1 << bit));
-        if reg == PrefixRegister::LdHl { 4 } else { 2 }
+    fn set(&mut self, reg: GpRegister, bit: u8) -> u32 {
+        self.set_register(reg, self.register(reg) | (1 << bit));
+        if reg == GpRegister::HlMem { 4 } else { 2 }
     }
 
     fn adc(&mut self, reg: GpRegister, rhs: u8) {
@@ -380,8 +358,26 @@ impl Cpu {
 
         self.regs.set_flag_z(result == 0);
         self.regs.set_flag_n(false);
-        self.regs.set_flag_h(h_rhs | h_c);
-        self.regs.set_flag_c(c_rhs | c_c);
+        self.regs.set_flag_h(h_rhs || h_c);
+        self.regs.set_flag_c(c_rhs || c_c);
+    }
+
+    fn sbc(&mut self, reg: GpRegister, rhs: u8) {
+        let c = if self.regs.f & FLAG_C != 0 { 1 } else { 0 };
+        let lhs = self.register(reg);
+
+        let (intermediate, c_rhs) = lhs.overflowing_sub(rhs);
+        let (result, c_c) = intermediate.overflowing_sub(c);
+
+        self.set_register(reg, result);
+
+        let h_rhs = (lhs & 0x0F) < (rhs & 0x0F);
+        let h_c = (intermediate & 0x0F) < c;
+
+        self.regs.set_flag_z(result == 0);
+        self.regs.set_flag_n(true);
+        self.regs.set_flag_h(h_rhs || h_c);
+        self.regs.set_flag_c(c_rhs || c_c);
     }
 
     fn add16(&mut self, lhs: u16, rhs: u16) -> u16 {
@@ -402,9 +398,84 @@ impl Cpu {
         self.regs.set_flag_c(overflown);
     }
 
+    fn and(&mut self, value: u8) {
+        self.regs.a &= value;
+
+        self.regs.set_flag_z(self.regs.a == 0);
+        self.regs.set_flag_n(false);
+        self.regs.set_flag_h(true);
+        self.regs.set_flag_c(false);
+    }
+
+    fn rlc(&mut self, reg: GpRegister) {
+        let reg_value = self.register(reg);
+        self.set_register(reg, reg_value.rotate_left(1));
+
+        // if reg_value = 0, reg_value.rotate_left(1) is also zero
+        self.regs.set_flag_z(reg_value == 0);
+        self.regs.set_flag_n(false);
+        self.regs.set_flag_h(false);
+        // bit 7
+        self.regs.set_flag_c(reg_value & (1 << 7) != 0);
+    }
+
+    fn rl(&mut self, reg: GpRegister) {
+        let reg_value = self.register(reg);
+        let result = (reg_value << 1) & 0xFE | ((self.regs.f & FLAG_C) >> 4);
+        self.set_register(reg, result);
+
+        self.regs.set_flag_z(result == 0);
+        self.regs.set_flag_n(false);
+        self.regs.set_flag_h(false);
+        // bit 7
+        self.regs.set_flag_c(reg_value & (1 << 7) != 0);
+    }
+
+    fn rrc(&mut self, reg: GpRegister) {
+        let reg_value = self.register(reg);
+        self.set_register(reg, reg_value.rotate_right(1));
+
+        // if reg_value = 0, reg_value.rotate_right(1) is also zero
+        self.regs.set_flag_z(reg_value == 0);
+        self.regs.set_flag_n(false);
+        self.regs.set_flag_h(false);
+        // bit 0
+        self.regs.set_flag_c(reg_value & 0x01 != 0);
+    }
+
+    fn rr(&mut self, reg: GpRegister) {
+        let reg_value = self.register(reg);
+        let result = (reg_value >> 1) | ((self.regs.f & FLAG_C) << 3);
+        self.set_register(reg, result);
+
+        self.regs.set_flag_z(result == 0);
+        self.regs.set_flag_n(false);
+        self.regs.set_flag_h(false);
+        // bit 0
+        self.regs.set_flag_c(reg_value & 0x01 != 0);
+    }
+
+    fn call(&mut self, condition: bool) -> u32 {
+        let addr = self.fetch_word();
+        if condition {
+            self.push_word(self.regs.pc);
+            self.regs.pc = addr;
+            6
+        } else {
+            3
+        }
+    }
+
     fn ret(&mut self) {
         let addr = self.pop_word();
         self.regs.pc = addr;
+    }
+
+    fn rst(&mut self, vec: u16) -> u32 {
+        debug_assert!(vec < 8);
+        self.push_word(self.regs.pc);
+        self.regs.pc = vec * 0x08;
+        4
     }
 
     fn print_logs(&self) {
@@ -427,6 +498,7 @@ impl Cpu {
         );
     }
 
+    #[allow(non_contiguous_range_endpoints)]
     pub fn step(&mut self) -> u32 {
         if self.gameboy_doctor && !self.halt {
             self.print_logs();
@@ -521,22 +593,7 @@ impl Cpu {
                     3
                 }
                 // call a16
-                0xCD => {
-                    let addr = self.fetch_word();
-                    self.push_word(self.regs.pc);
-                    self.regs.pc = addr;
-                    6
-                }
-                // ld a, l
-                0x7D => {
-                    self.regs.a = self.regs.l;
-                    1
-                }
-                // ld a, h
-                0x7C => {
-                    self.regs.a = self.regs.h;
-                    1
-                }
+                0xCD => self.call(true),
                 // jr s8
                 0x18 => {
                     let offset = self.fetch_byte() as i8 as i16;
@@ -598,16 +655,6 @@ impl Cpu {
                     self.regs.set_bc(self.regs.bc().wrapping_add(1));
                     2
                 }
-                // ld a, b
-                0x78 => {
-                    self.regs.a = self.regs.b;
-                    1
-                }
-                // or c
-                0xB1 => {
-                    self.or(self.regs.c);
-                    1
-                }
                 // jr z, s8
                 0x28 => {
                     let offset = self.fetch_byte() as i8 as i16;
@@ -633,25 +680,11 @@ impl Cpu {
                 // and d8
                 0xE6 => {
                     let value = self.fetch_byte();
-                    self.regs.a &= value;
-
-                    self.regs.set_flag_z(self.regs.a == 0);
-                    self.regs.set_flag_n(false);
-                    self.regs.set_flag_h(true);
-                    self.regs.set_flag_c(false);
+                    self.and(value);
                     2
                 }
                 // call nz, a16
-                0xC4 => {
-                    let addr = self.fetch_word();
-                    if (self.regs.f & FLAG_Z) == 0 {
-                        self.push_word(self.regs.pc);
-                        self.regs.pc = addr;
-                        6
-                    } else {
-                        3
-                    }
-                }
+                0xC4 => self.call(self.regs.f & FLAG_Z == 0),
                 // ld b, d8
                 0x06 => {
                     self.regs.b = self.fetch_byte();
@@ -732,16 +765,6 @@ impl Cpu {
                         2
                     }
                 }
-                // ld a, (hl)
-                0x7E => {
-                    self.regs.a = self.bus.read(self.regs.hl());
-                    2
-                }
-                // ld b, a
-                0x47 => {
-                    self.regs.b = self.regs.a;
-                    1
-                }
                 // ld (de), a
                 0x12 => {
                     self.bus.write(self.regs.de(), self.regs.a);
@@ -773,33 +796,13 @@ impl Cpu {
                     self.sub(GpRegister::A, rhs);
                     2
                 }
-                // or a
-                0xB7 => {
-                    self.or(self.regs.a);
-                    1
-                }
                 // push de
                 0xD5 => {
                     self.push_word(self.regs.de());
                     4
                 }
-                // ld b, (hl)
-                0x46 => {
-                    self.regs.b = self.bus.read(self.regs.hl());
-                    2
-                }
                 // dec l
                 0x2D => self.dec(GpRegister::L),
-                // ld c, (hl)
-                0x4E => {
-                    self.regs.c = self.bus.read(self.regs.hl());
-                    2
-                }
-                // ld d, (hl)
-                0x56 => {
-                    self.regs.d = self.bus.read(self.regs.hl());
-                    2
-                }
                 // xor (hl)
                 0xAE => {
                     self.xor(self.bus.read(self.regs.hl()));
@@ -813,117 +816,80 @@ impl Cpu {
                 // prefix
                 0xCB => {
                     let suffix_opcode = self.fetch_byte();
-
-                    let reg = match suffix_opcode & 0x07 {
-                        0x0 => PrefixRegister::B,
-                        0x1 => PrefixRegister::C,
-                        0x2 => PrefixRegister::D,
-                        0x3 => PrefixRegister::E,
-                        0x4 => PrefixRegister::H,
-                        0x5 => PrefixRegister::L,
-                        0x6 => PrefixRegister::LdHl,
-                        0x7 => PrefixRegister::A,
-                        _ => unreachable!(),
-                    };
-
-                    let reg_value = self.prefix_reg(reg);
+                    let reg = GpRegister::from_opcode_low(suffix_opcode);
 
                     match suffix_opcode & 0xF8 {
                         // rlc r
                         0x00 => {
-                            self.set_prefix_reg(reg, reg_value.rotate_left(1));
-
-                            // if reg_value = 0, reg_value.rotate_left(1) is also zero
-                            self.regs.set_flag_z(reg_value == 0);
-                            self.regs.set_flag_n(false);
-                            self.regs.set_flag_h(false);
-                            // bit 7
-                            self.regs.set_flag_c(reg_value & (1 << 7) != 0);
-                            if reg == PrefixRegister::LdHl { 4 } else { 2 }
+                            self.rlc(reg);
+                            if reg == GpRegister::HlMem { 4 } else { 2 }
                         }
                         // rrc r
                         0x08 => {
-                            self.set_prefix_reg(reg, reg_value.rotate_right(1));
-
-                            // if reg_value = 0, reg_value.rotate_right(1) is also zero
-                            self.regs.set_flag_z(reg_value == 0);
-                            self.regs.set_flag_n(false);
-                            self.regs.set_flag_h(false);
-                            // bit 0
-                            self.regs.set_flag_c(reg_value & 0x01 != 0);
-                            if reg == PrefixRegister::LdHl { 4 } else { 2 }
+                            self.rrc(reg);
+                            if reg == GpRegister::HlMem { 4 } else { 2 }
                         }
                         // rl r
                         0x10 => {
-                            let result = (reg_value << 1) & 0xFE | (self.regs.f & FLAG_C >> 4);
-                            self.set_prefix_reg(reg, result);
-
-                            self.regs.set_flag_z(result == 0);
-                            self.regs.set_flag_n(false);
-                            self.regs.set_flag_h(false);
-                            // bit 7
-                            self.regs.set_flag_c(reg_value & (1 << 7) != 0);
-                            if reg == PrefixRegister::LdHl { 4 } else { 2 }
+                            self.rl(reg);
+                            if reg == GpRegister::HlMem { 4 } else { 2 }
                         }
                         // rr r
                         0x18 => {
-                            let result = (reg_value >> 1) | ((self.regs.f & FLAG_C) << 3);
-                            self.set_prefix_reg(reg, result);
-
-                            self.regs.set_flag_z(result == 0);
-                            self.regs.set_flag_n(false);
-                            self.regs.set_flag_h(false);
-                            // bit 0
-                            self.regs.set_flag_c(reg_value & 0x01 != 0);
-                            if reg == PrefixRegister::LdHl { 4 } else { 2 }
+                            self.rr(reg);
+                            if reg == GpRegister::HlMem { 4 } else { 2 }
                         }
                         // sla r
                         0x20 => {
-                            self.set_prefix_reg(reg, reg_value << 1);
+                            let reg_value = self.register(reg);
+                            self.set_register(reg, reg_value << 1);
 
-                            self.regs.set_flag_n(reg_value << 1 == 0);
+                            self.regs.set_flag_z((reg_value << 1) == 0);
                             self.regs.set_flag_n(false);
                             self.regs.set_flag_h(false);
                             // bit 7
                             self.regs.set_flag_c(reg_value & (1 << 7) != 0);
-                            if reg == PrefixRegister::LdHl { 4 } else { 2 }
+                            if reg == GpRegister::HlMem { 4 } else { 2 }
                         }
                         // sra r
                         0x28 => {
+                            let reg_value = self.register(reg);
                             // arithmetic right shift
                             let result = (reg_value as i8 >> 1) as u8;
-                            self.set_prefix_reg(reg, result);
+                            self.set_register(reg, result);
 
                             self.regs.set_flag_z(result == 0);
                             self.regs.set_flag_n(false);
                             self.regs.set_flag_h(false);
                             // bit 0
                             self.regs.set_flag_c(reg_value & 0x01 != 0);
-                            if reg == PrefixRegister::LdHl { 4 } else { 2 }
+                            if reg == GpRegister::HlMem { 4 } else { 2 }
                         }
                         // swap r
                         0x30 => {
+                            let reg_value = self.register(reg);
                             let high_nibble = reg_value & 0xF0;
                             let result = (reg_value << 4) | (high_nibble >> 4);
-                            self.set_prefix_reg(reg, result);
+                            self.set_register(reg, result);
 
                             self.regs.set_flag_z(result == 0);
                             self.regs.set_flag_n(false);
                             self.regs.set_flag_h(false);
                             // bit 0
                             self.regs.set_flag_c(false);
-                            if reg == PrefixRegister::LdHl { 4 } else { 2 }
+                            if reg == GpRegister::HlMem { 4 } else { 2 }
                         }
                         // srl r
                         0x38 => {
-                            self.set_prefix_reg(reg, reg_value >> 1);
+                            let reg_value = self.register(reg);
+                            self.set_register(reg, reg_value >> 1);
 
                             self.regs.set_flag_z(reg_value >> 1 == 0);
                             self.regs.set_flag_n(false);
                             self.regs.set_flag_h(false);
                             // bit 0
                             self.regs.set_flag_c(reg_value & 0x01 != 0);
-                            if reg == PrefixRegister::LdHl { 4 } else { 2 }
+                            if reg == GpRegister::HlMem { 4 } else { 2 }
                         }
                         // bit 0, r
                         0x40 => self.bit(reg, 0),
@@ -976,21 +942,6 @@ impl Cpu {
                         _ => unreachable!(),
                     }
                 }
-                // rra
-                0x1F => {
-                    let prev_c = self.regs.f & FLAG_C;
-
-                    // bit 0
-                    self.regs.set_flag_c(self.regs.a & 0x01 != 0);
-
-                    self.regs.a = (self.regs.a >> 1) | (prev_c << 3);
-
-                    self.regs.set_flag_z(false);
-                    self.regs.set_flag_n(false);
-                    self.regs.set_flag_h(false);
-
-                    1
-                }
                 // jr nc, s8
                 0x30 => {
                     let offset = self.fetch_byte() as i8 as i16;
@@ -1001,61 +952,16 @@ impl Cpu {
                         2
                     }
                 }
-                // ld e, a
-                0x5F => {
-                    self.regs.e = self.regs.a;
-                    1
-                }
                 // xor d8
                 0xEE => {
                     let value = self.fetch_byte();
                     self.xor(value);
                     2
                 }
-                // ld a, c
-                0x79 => {
-                    self.regs.a = self.regs.c;
-                    1
-                }
-                // ld c, a
-                0x4F => {
-                    self.regs.c = self.regs.a;
-                    1
-                }
-                // ld a, d
-                0x7A => {
-                    self.regs.a = self.regs.d;
-                    1
-                }
-                // ld d, a
-                0x57 => {
-                    self.regs.d = self.regs.a;
-                    1
-                }
-                // ld a, e
-                0x7B => {
-                    self.regs.a = self.regs.e;
-                    1
-                }
                 // dec h
                 0x25 => {
                     self.dec(GpRegister::H);
                     1
-                }
-                // ld (hl), d
-                0x72 => {
-                    self.bus.write(self.regs.hl(), self.regs.d);
-                    2
-                }
-                // ld (hl), c
-                0x71 => {
-                    self.bus.write(self.regs.hl(), self.regs.c);
-                    2
-                }
-                // ld (hl), b
-                0x70 => {
-                    self.bus.write(self.regs.hl(), self.regs.b);
-                    2
                 }
                 // pop de
                 0xD1 => {
@@ -1102,16 +1008,6 @@ impl Cpu {
                     self.dec(GpRegister::HlMem);
                     3
                 }
-                // ld l, (hl)
-                0x6E => {
-                    self.regs.l = self.bus.read(self.regs.hl());
-                    2
-                }
-                // ld l, a
-                0x6F => {
-                    self.regs.l = self.regs.a;
-                    1
-                }
                 // add hl, hl
                 0x29 => {
                     let hl = self.regs.hl();
@@ -1136,20 +1032,10 @@ impl Cpu {
                         3
                     }
                 }
-                // cp e
-                0xBB => {
-                    self.cp(self.regs.e);
-                    1
-                }
                 // inc b
                 0x04 => self.inc(GpRegister::B),
                 // inc c
                 0x0C => self.inc(GpRegister::C),
-                // ld h, a
-                0x67 => {
-                    self.regs.h = self.regs.a;
-                    1
-                }
                 // daa
                 0x27 => {
                     if self.regs.f & FLAG_N != 0 {
@@ -1177,21 +1063,6 @@ impl Cpu {
 
                     self.regs.set_flag_z(self.regs.a == 0);
                     self.regs.set_flag_h(false);
-                    1
-                }
-                // cp d
-                0xBA => {
-                    self.cp(self.regs.d);
-                    1
-                }
-                // cp c
-                0xB9 => {
-                    self.cp(self.regs.c);
-                    1
-                }
-                // cp b
-                0xB8 => {
-                    self.cp(self.regs.b);
                     1
                 }
                 // ei
@@ -1240,6 +1111,301 @@ impl Cpu {
                 0x76 => {
                     self.halt = true;
                     1
+                }
+                // ld l, d8
+                0x2E => {
+                    self.regs.l = self.fetch_byte();
+                    2
+                }
+                // xor a
+                0xAF => {
+                    self.xor(self.regs.a);
+                    1
+                }
+                // ld (a16), sp
+                0x08 => {
+                    let addr = self.fetch_word();
+                    self.bus.write(addr, self.regs.sp as u8);
+                    self.bus
+                        .write(addr.wrapping_add(1), (self.regs.sp >> 8) as u8);
+                    5
+                }
+                // most ld instructions
+                0x40..0x80 => {
+                    let in_reg = GpRegister::from_opcode_low(opcode);
+                    let out_reg = match opcode & 0xF8 {
+                        0x40 => GpRegister::B,
+                        0x48 => GpRegister::C,
+                        0x50 => GpRegister::D,
+                        0x58 => GpRegister::E,
+                        0x60 => GpRegister::H,
+                        0x68 => GpRegister::L,
+                        0x70 => GpRegister::HlMem,
+                        0x78 => GpRegister::A,
+                        _ => unreachable!(),
+                    };
+
+                    self.set_register(out_reg, self.register(in_reg));
+
+                    let cycles = if in_reg == GpRegister::HlMem || out_reg == GpRegister::HlMem {
+                        2
+                    } else {
+                        1
+                    };
+
+                    cycles
+                }
+                // ld sp, hl
+                0xF9 => {
+                    self.regs.sp = self.regs.hl();
+                    2
+                }
+                // inc sp
+                0x33 => {
+                    self.regs.sp = self.regs.sp.wrapping_add(1);
+                    2
+                }
+                0x80..0xC0 => {
+                    let reg = GpRegister::from_opcode_low(opcode);
+                    match opcode & 0xF8 {
+                        // add a, r8
+                        0x80 => self.add(GpRegister::A, self.register(reg)),
+                        // adc a, r8
+                        0x88 => self.adc(GpRegister::A, self.register(reg)),
+                        // sub r8
+                        0x90 => self.sub(GpRegister::A, self.register(reg)),
+                        // sbc a, r8
+                        0x98 => self.sbc(GpRegister::A, self.register(reg)),
+                        // and r8
+                        0xA0 => self.and(self.register(reg)),
+                        // xor r8
+                        0xA8 => self.xor(self.register(reg)),
+                        // or r8
+                        0xB0 => self.or(self.register(reg)),
+                        // cp r8
+                        0xB8 => self.cp(self.register(reg)),
+                        _ => unreachable!(),
+                    }
+                    if reg == GpRegister::HlMem { 2 } else { 1 }
+                }
+                // dec sp
+                0x3B => {
+                    self.regs.sp = self.regs.sp.wrapping_sub(1);
+                    2
+                }
+                // add hl, sp
+                0x39 => {
+                    let result = self.add16(self.regs.hl(), self.regs.sp);
+                    self.regs.set_hl(result);
+                    2
+                }
+                // add sp, s8
+                0xE8 => {
+                    let rhs = self.fetch_byte() as i8 as i16;
+
+                    let result = self.regs.sp.wrapping_add_signed(rhs);
+
+                    self.regs.set_flag_z(false);
+                    self.regs.set_flag_n(false);
+                    self.regs
+                        .set_flag_h((self.regs.sp & 0x0F) + (rhs as u16 & 0x0F) > 0x0F);
+                    self.regs
+                        .set_flag_c((self.regs.sp & 0xFF) + (rhs as u16 & 0xFF) > 0xFF);
+
+                    self.regs.sp = result;
+
+                    4
+                }
+                // ld (hl), d8
+                0x36 => {
+                    let value = self.fetch_byte();
+                    self.bus.write(self.regs.hl(), value);
+                    3
+                }
+                // ld d, d8
+                0x16 => {
+                    self.regs.d = self.fetch_byte();
+                    2
+                }
+                // ld e, d8
+                0x1E => {
+                    self.regs.e = self.fetch_byte();
+                    2
+                }
+                // or d8
+                0xF6 => {
+                    let value = self.fetch_byte();
+                    self.or(value);
+                    2
+                }
+                // sbc a, d8
+                0xDE => {
+                    let rhs = self.fetch_byte();
+                    self.sbc(GpRegister::A, rhs);
+                    2
+                }
+                // dec bc
+                0x0B => {
+                    self.regs.set_bc(self.regs.bc().wrapping_sub(1));
+                    2
+                }
+                // dec de
+                0x1B => {
+                    self.regs.set_de(self.regs.de().wrapping_sub(1));
+                    2
+                }
+                // dec hl
+                0x2B => {
+                    self.regs.set_hl(self.regs.hl().wrapping_sub(1));
+                    2
+                }
+                // add hl, bc
+                0x09 => {
+                    let result = self.add16(self.regs.hl(), self.regs.bc());
+                    self.regs.set_hl(result);
+                    2
+                }
+                // add hl, de
+                0x19 => {
+                    let result = self.add16(self.regs.hl(), self.regs.de());
+                    self.regs.set_hl(result);
+                    2
+                }
+                // jp nc, a16
+                0xD2 => {
+                    let addr = self.fetch_word();
+                    if self.regs.f & FLAG_C == 0 {
+                        self.regs.pc = addr;
+                        4
+                    } else {
+                        3
+                    }
+                }
+                // jp c, a16
+                0xDA => {
+                    let addr = self.fetch_word();
+                    if self.regs.f & FLAG_C != 0 {
+                        self.regs.pc = addr;
+                        4
+                    } else {
+                        3
+                    }
+                }
+                // call z, a16
+                0xCC => self.call(self.regs.f & FLAG_Z != 0),
+                // call nc, a16
+                0xD4 => self.call(self.regs.f & FLAG_C == 0),
+                // call c, a16
+                0xDC => self.call(self.regs.f & FLAG_C != 0),
+                // ret nz
+                0xC0 => {
+                    if self.regs.f & FLAG_Z == 0 {
+                        self.ret();
+                        5
+                    } else {
+                        2
+                    }
+                }
+                // reti
+                0xD9 => {
+                    self.ime = true;
+                    self.ret();
+                    4
+                }
+                // rst 0
+                0xC7 => self.rst(0),
+                // rst 1
+                0xCF => self.rst(1),
+                // rst 2
+                0xD7 => self.rst(2),
+                // rst 3
+                0xDF => self.rst(3),
+                // rst 4
+                0xE7 => self.rst(4),
+                // rst 5
+                0xEF => self.rst(5),
+                // rst 6
+                0xF7 => self.rst(6),
+                // rst 7
+                0xFF => self.rst(7),
+                // ld a, (c)
+                0xF2 => {
+                    self.regs.a = self.bus.read((self.regs.c as u16) | 0xFF00);
+                    2
+                }
+                // ld (c), a
+                0xE2 => {
+                    self.bus.write((self.regs.c as u16) | 0xFF00, self.regs.a);
+                    2
+                }
+                // cpl
+                0x2F => {
+                    self.regs.a = !self.regs.a;
+                    self.regs.set_flag_n(true);
+                    self.regs.set_flag_h(true);
+                    1
+                }
+                // scf
+                0x37 => {
+                    self.regs.set_flag_n(false);
+                    self.regs.set_flag_h(false);
+                    self.regs.set_flag_c(true);
+                    1
+                }
+                // ccf
+                0x3F => {
+                    self.regs.set_flag_n(false);
+                    self.regs.set_flag_h(false);
+                    self.regs.set_flag_c(self.regs.f & FLAG_C == 0);
+                    1
+                }
+                // dec d
+                0x15 => self.dec(GpRegister::D),
+                // rlca
+                0x07 => {
+                    self.rlc(GpRegister::A);
+                    self.regs.set_flag_z(false);
+                    1
+                }
+                // rla
+                0x17 => {
+                    self.rl(GpRegister::A);
+                    self.regs.set_flag_z(false);
+                    1
+                }
+                // rrca
+                0x0F => {
+                    self.rrc(GpRegister::A);
+                    self.regs.set_flag_z(false);
+                    1
+                }
+                // rra
+                0x1F => {
+                    self.rr(GpRegister::A);
+                    self.regs.set_flag_z(false);
+                    1
+                }
+                // ld a, (bc)
+                0x0A => {
+                    self.regs.a = self.bus.read(self.regs.bc());
+                    2
+                }
+                // ld (bc), a
+                0x02 => {
+                    self.bus.write(self.regs.bc(), self.regs.a);
+                    2
+                }
+                // ld a, (hl-)
+                0x3A => {
+                    let value = self.bus.read(self.regs.hl());
+                    self.regs.a = value;
+                    self.regs.set_hl(self.regs.hl().wrapping_sub(1));
+                    2
+                }
+                // inc (hl)
+                0x34 => {
+                    self.inc(GpRegister::HlMem);
+                    3
                 }
                 _ => panic!(
                     "unimplemented opcode: 0x{opcode:02X} at addr {:X}",
