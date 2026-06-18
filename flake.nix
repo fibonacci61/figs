@@ -1,5 +1,5 @@
 {
-  description = "Rust + Wayland devshell (fixes NoWaylandLib)";
+  description = "Wayland devshell (fixes NoWaylandLib)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -28,8 +28,6 @@
       in {
         devShells.default = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
-            rustc
-            cargo
             pkg-config
           ];
 
