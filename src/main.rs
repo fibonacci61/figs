@@ -3,6 +3,7 @@ mod cartridge;
 mod cpu;
 mod dma;
 mod ppu;
+mod timer;
 
 use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
@@ -15,12 +16,13 @@ use crate::{
     cartridge::Cartridge,
     cpu::{Cpu, IrqHolder},
     ppu::{Ppu, SCREEN_HEIGHT, SCREEN_WIDTH},
+    timer::Timer,
 };
 
 #[derive(Parser)]
 #[command(version, about)]
 struct Figs {
-    /// Hardcodes `LY` register to 0x90 to comply with Gameboy Doctor for testing
+    /// Prints CPU state logs and hardcodes `LY` register to 0x90 to comply with Gameboy Doctor
     #[arg(short, long)]
     gameboy_doctor: bool,
     /// Path to Game Boy ROM
@@ -45,12 +47,17 @@ fn main() -> anyhow::Result<()> {
     .unwrap();
 
     let irq_holder = Rc::new(RefCell::new(IrqHolder::new()));
+    let timer = Timer::new(Rc::clone(&irq_holder));
     let ppu = Ppu::new(window, Rc::clone(&irq_holder));
-    let bus = Bus::new(cart, ppu, irq_holder, figs.gameboy_doctor);
-    let mut cpu = Cpu::new(bus);
+    let bus = Bus::new(cart, ppu, irq_holder, timer, figs.gameboy_doctor);
+    let mut cpu = Cpu::new(bus, figs.gameboy_doctor);
     loop {
         let machine_cycles = cpu.step();
         let cycles = machine_cycles * 4;
+
+        for _ in 0..cycles {
+            cpu.step_timer();
+        }
 
         for _ in 0..machine_cycles {
             cpu.step_ppu();

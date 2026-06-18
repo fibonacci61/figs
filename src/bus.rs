@@ -5,6 +5,7 @@ use crate::{
     cpu::{IntFlags, IrqHolder},
     dma::Dma,
     ppu::Ppu,
+    timer::Timer,
 };
 
 pub const VRAM_LEN: usize = 0x2000;
@@ -25,6 +26,7 @@ pub struct Bus {
     pub dma: Dma,
     pub irq_holder: Rc<RefCell<IrqHolder>>,
     pub ie: IntFlags,
+    pub timer: Timer,
     pub gameboy_doctor: bool,
 }
 
@@ -33,6 +35,7 @@ impl Bus {
         cartridge: Cartridge,
         ppu: Ppu,
         irq_holder: Rc<RefCell<IrqHolder>>,
+        timer: Timer,
         gameboy_doctor: bool,
     ) -> Self {
         Self {
@@ -46,6 +49,7 @@ impl Bus {
             dma: Dma::new(),
             irq_holder,
             ie: IntFlags::new(),
+            timer,
             gameboy_doctor,
         }
     }
@@ -78,6 +82,14 @@ impl Bus {
                 .oam()
                 .map(|oam| oam[(addr as usize) - 0xFE00])
                 .unwrap_or(0xFF),
+            // DIV
+            0xFF04 => self.timer.div(),
+            // TIMA
+            0xFF05 => self.timer.tima(),
+            // TMA
+            0xFF06 => self.timer.tma(),
+            // TAC
+            0xFF07 => self.timer.tac(),
             // IF
             0xFF0F => self.irq_holder.borrow().as_if(),
             // LCDC
@@ -147,6 +159,14 @@ impl Bus {
                     oam[(addr as usize) - 0xFE00] = value;
                 }
             }
+            // DIV
+            0xFF04 => self.timer.reset_div(),
+            // TIMA
+            0xFF05 => self.timer.set_tima(value),
+            // TMA
+            0xFF06 => self.timer.set_tma(value),
+            // TAC
+            0xFF07 => self.timer.set_tac(value),
             // IF
             0xFF0F => *self.irq_holder.borrow_mut() = IrqHolder::from_bits(value),
             // LCDC
@@ -178,7 +198,7 @@ impl Bus {
             // IE
             0xFFFF => self.ie = IntFlags::from_bits(value),
             _ => {
-                log::warn!("attempt to write value {value:X} to unmapped addr {addr:X}")
+                log::warn!("attempt to write value {value:X} to unmapped addr {addr:X}");
             }
         }
     }
