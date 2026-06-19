@@ -130,6 +130,7 @@ impl Mbc for NoMbc {
 
     fn write(&mut self, addr: u16, value: u8) {
         match addr {
+            Self::ROM_START..Self::ROM_END => {}
             Self::RAM_START..Self::RAM_END if let Some(ram) = self.ram.as_mut() => {
                 ram[addr as usize] = value
             }
