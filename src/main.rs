@@ -5,7 +5,12 @@ mod dma;
 mod ppu;
 mod timer;
 
-use std::{cell::RefCell, path::PathBuf, rc::Rc};
+use std::{
+    cell::RefCell,
+    path::PathBuf,
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 use clap::Parser;
 use log::info;
@@ -29,6 +34,9 @@ struct Figs {
     rom_path: PathBuf,
 }
 
+const GB_CLOCK: u32 = 4_194_304;
+const SYNC_FREQUENCY: u32 = 4096;
+
 fn main() -> anyhow::Result<()> {
     env_logger::init();
 
@@ -51,9 +59,14 @@ fn main() -> anyhow::Result<()> {
     let ppu = Ppu::new(window, Rc::clone(&irq_holder));
     let bus = Bus::new(cart, ppu, irq_holder, timer, figs.gameboy_doctor);
     let mut cpu = Cpu::new(bus, figs.gameboy_doctor);
+
+    let start = Instant::now();
+    let mut total_cycles = 0;
+    let mut next_sync = SYNC_FREQUENCY;
     loop {
         let machine_cycles = cpu.step();
         let cycles = machine_cycles * 4;
+        total_cycles += cycles;
 
         for _ in 0..cycles {
             cpu.step_timer();
@@ -64,5 +77,15 @@ fn main() -> anyhow::Result<()> {
         }
 
         cpu.step_dma(cycles);
+
+        if total_cycles >= next_sync {
+            next_sync += SYNC_FREQUENCY;
+
+            let emulated_time = Duration::from_secs_f64(total_cycles as f64 / GB_CLOCK as f64);
+            let target_time = start + emulated_time;
+            if let Some(remaining) = target_time.checked_duration_since(Instant::now()) {
+                std::thread::sleep(remaining);
+            }
+        }
     }
 }

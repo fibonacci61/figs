@@ -765,6 +765,9 @@ impl Ppu {
             // fire vblank interrupt if we just entered vblank
             if self.dot == 0 {
                 self.irq_holder.borrow_mut().request_vblank();
+                self.window
+                    .update_with_buffer(&self.fb, SCREEN_WIDTH, SCREEN_HEIGHT)
+                    .unwrap();
             }
             // we can't set dot=0 since the conditional above relies on it corresponding to the
             // start of vblank, so we use modular arithmetic to check for the line ending instead
@@ -792,9 +795,6 @@ impl Ppu {
             State::Mode0 => {
                 // 455 dots have been completed, so this is the 456th
                 if self.dot == 455 {
-                    self.window
-                        .update_with_buffer(&self.fb, SCREEN_WIDTH, SCREEN_HEIGHT)
-                        .unwrap();
                     self.line += 1;
                     if self.wy_condition == Some(true) {
                         self.window_line += 1;
@@ -806,6 +806,7 @@ impl Ppu {
                         self.wy_condition = None;
                     }
                     self.mode = State::Mode2;
+                    return;
                 }
             }
         }
