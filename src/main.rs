@@ -81,14 +81,14 @@ fn main() -> anyhow::Result<()> {
     loop {
         let machine_cycles = cpu.step();
         let cycles = machine_cycles * 4;
-        total_cycles += machine_cycles;
+        total_cycles += cycles;
 
         for _ in 0..cycles {
             cpu.step_timer();
             cpu.step_serial();
         }
 
-        for _ in 0..machine_cycles {
+        for _ in 0..cycles {
             cpu.step_ppu();
         }
 
