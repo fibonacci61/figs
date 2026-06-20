@@ -1,5 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
+use minifb::Window;
+
 use crate::{
     cartridge::Cartridge,
     cpu::{IntFlags, IrqHolder},
@@ -28,6 +30,7 @@ pub struct Bus {
     pub ie: IntFlags,
     pub timer: Timer,
     pub gameboy_doctor: bool,
+    pub window: Window,
 }
 
 impl Bus {
@@ -37,6 +40,7 @@ impl Bus {
         irq_holder: Rc<RefCell<IrqHolder>>,
         timer: Timer,
         gameboy_doctor: bool,
+        window: Window,
     ) -> Self {
         Self {
             cartridge,
@@ -51,6 +55,7 @@ impl Bus {
             ie: IntFlags::new(),
             timer,
             gameboy_doctor,
+            window,
         }
     }
 
@@ -187,7 +192,7 @@ impl Bus {
             // IF
             0xFF0F => *self.irq_holder.borrow_mut() = IrqHolder::from_bits(value),
             // LCDC
-            0xFF40 => self.ppu.set_lcdc(value),
+            0xFF40 => self.ppu.set_lcdc(&mut self.window, value),
             // STAT
             0xFF41 => self.ppu.set_stat(value),
             // SCY

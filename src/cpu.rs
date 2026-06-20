@@ -1418,7 +1418,7 @@ impl Cpu {
     }
 
     pub fn step_ppu(&mut self) {
-        self.bus.ppu.step();
+        self.bus.ppu.step(&mut self.bus.window);
     }
 
     pub fn step_dma(&mut self, cycles: u32) {

@@ -132,7 +132,6 @@ struct SpritePixel {
 }
 
 pub struct Ppu {
-    window: Window,
     fb: [u32; SCREEN_HEIGHT * SCREEN_WIDTH],
     irq_holder: Rc<RefCell<IrqHolder>>,
 
@@ -191,13 +190,12 @@ const TILE_LEN: usize = 16;
 const OBJ_Y_OFFSET: u8 = 16;
 
 impl Ppu {
-    pub fn new(mut window: Window, irq_holder: Rc<RefCell<IrqHolder>>) -> Self {
+    pub fn new(window: &mut Window, irq_holder: Rc<RefCell<IrqHolder>>) -> Self {
         let fb = [0; SCREEN_WIDTH * SCREEN_HEIGHT];
         window
             .update_with_buffer(&fb, SCREEN_WIDTH, SCREEN_HEIGHT)
             .unwrap();
         Self {
-            window,
             fb,
             irq_holder,
             vram: [0; VRAM_LEN],
@@ -303,7 +301,7 @@ impl Ppu {
         self.lcdc.bits()
     }
 
-    pub fn set_lcdc(&mut self, value: u8) {
+    pub fn set_lcdc(&mut self, window: &mut Window, value: u8) {
         self.lcdc = Lcdc::from_bits_retain(value);
         if !self.lcdc.contains(Lcdc::LCD_ENABLE) {
             // this bit should only be cleared during VBlank on real hardware
@@ -321,7 +319,7 @@ impl Ppu {
             self.mode = State::Mode2;
             // draw black screen
             self.fb.fill(0);
-            self.window
+            window
                 .update_with_buffer(&self.fb, SCREEN_WIDTH, SCREEN_HEIGHT)
                 .expect("drawing failed");
         }
@@ -747,7 +745,7 @@ impl Ppu {
         }
     }
 
-    pub fn step(&mut self) {
+    pub fn step(&mut self, window: &mut Window) {
         if !self.lcdc.contains(Lcdc::LCD_ENABLE) {
             return;
         }
@@ -765,7 +763,7 @@ impl Ppu {
             // fire vblank interrupt if we just entered vblank
             if self.dot == 0 {
                 self.irq_holder.borrow_mut().request_vblank();
-                self.window
+                window
                     .update_with_buffer(&self.fb, SCREEN_WIDTH, SCREEN_HEIGHT)
                     .unwrap();
             }

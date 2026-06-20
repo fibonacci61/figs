@@ -46,7 +46,7 @@ fn main() -> anyhow::Result<()> {
 
     info!("loaded ROM '{}'", cart.title());
 
-    let window = minifb::Window::new(
+    let mut window = minifb::Window::new(
         "FIGS",
         SCREEN_WIDTH,
         SCREEN_HEIGHT,
@@ -56,8 +56,15 @@ fn main() -> anyhow::Result<()> {
 
     let irq_holder = Rc::new(RefCell::new(IrqHolder::new()));
     let timer = Timer::new(Rc::clone(&irq_holder));
-    let ppu = Ppu::new(window, Rc::clone(&irq_holder));
-    let bus = Bus::new(cart, ppu, irq_holder, timer, figs.gameboy_doctor);
+    let ppu = Ppu::new(&mut window, Rc::clone(&irq_holder));
+    let bus = Bus::new(
+        cart,
+        ppu,
+        irq_holder,
+        timer,
+        figs.gameboy_doctor,
+        window,
+    );
     let mut cpu = Cpu::new(bus, figs.gameboy_doctor);
 
     let start = Instant::now();
