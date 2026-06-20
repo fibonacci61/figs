@@ -4,6 +4,7 @@ mod cpu;
 mod dma;
 mod joypad;
 mod ppu;
+mod serial;
 mod timer;
 
 use std::{
@@ -23,6 +24,7 @@ use crate::{
     cpu::{Cpu, IrqHolder},
     joypad::Joypad,
     ppu::{Ppu, SCREEN_HEIGHT, SCREEN_WIDTH},
+    serial::Serial,
     timer::Timer,
 };
 
@@ -58,6 +60,7 @@ fn main() -> anyhow::Result<()> {
 
     let irq_holder = Rc::new(RefCell::new(IrqHolder::new()));
     let timer = Timer::new(Rc::clone(&irq_holder));
+    let serial = Serial::new(Rc::clone(&irq_holder));
     let ppu = Ppu::new(&mut window, Rc::clone(&irq_holder));
     let joypad = Joypad::new(Rc::clone(&irq_holder));
     let bus = Bus::new(
@@ -65,6 +68,7 @@ fn main() -> anyhow::Result<()> {
         ppu,
         irq_holder,
         timer,
+        serial,
         figs.gameboy_doctor,
         window,
         joypad,
@@ -81,6 +85,7 @@ fn main() -> anyhow::Result<()> {
 
         for _ in 0..cycles {
             cpu.step_timer();
+            cpu.step_serial();
         }
 
         for _ in 0..machine_cycles {

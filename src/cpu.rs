@@ -52,6 +52,10 @@ impl IrqHolder {
         self.0.set_timer(true);
     }
 
+    pub fn request_serial(&mut self) {
+        self.0.set_serial(true);
+    }
+
     pub fn request_joypad(&mut self) {
         self.0.set_joypad(true);
     }
@@ -1419,6 +1423,11 @@ impl Cpu {
     // t cycles
     pub fn step_timer(&mut self) {
         self.bus.timer.step();
+    }
+
+    // t cycles
+    pub fn step_serial(&mut self) {
+        self.bus.serial.step();
     }
 
     pub fn step_ppu(&mut self) {

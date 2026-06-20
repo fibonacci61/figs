@@ -8,6 +8,7 @@ use crate::{
     dma::Dma,
     joypad::Joypad,
     ppu::Ppu,
+    serial::Serial,
     timer::Timer,
 };
 
@@ -30,6 +31,7 @@ pub struct Bus {
     pub irq_holder: Rc<RefCell<IrqHolder>>,
     pub ie: IntFlags,
     pub timer: Timer,
+    pub serial: Serial,
     pub gameboy_doctor: bool,
     pub window: Window,
     pub joypad: Joypad,
@@ -41,6 +43,7 @@ impl Bus {
         ppu: Ppu,
         irq_holder: Rc<RefCell<IrqHolder>>,
         timer: Timer,
+        serial: Serial,
         gameboy_doctor: bool,
         window: Window,
         joypad: Joypad,
@@ -57,6 +60,7 @@ impl Bus {
             irq_holder,
             ie: IntFlags::new(),
             timer,
+            serial,
             gameboy_doctor,
             window,
             joypad,
@@ -100,6 +104,10 @@ impl Bus {
                 .unwrap_or(0xFF),
             // Joypad
             0xFF00 => self.joypad.status(),
+            // SB
+            0xFF01 => self.serial.sb(),
+            // SC
+            0xFF02 => self.serial.sc(),
             // DIV
             0xFF04 => self.timer.div(),
             // TIMA
@@ -189,6 +197,10 @@ impl Bus {
             }
             // Joypad
             0xFF00 => self.joypad.set_status(value),
+            // SB
+            0xFF01 => self.serial.set_sb(value),
+            // SC
+            0xFF02 => self.serial.set_sc(value),
             // DIV
             0xFF04 => self.timer.reset_div(),
             // TIMA
