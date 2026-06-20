@@ -509,15 +509,13 @@ impl Cpu {
         {
             let mut irq_holder = self.bus.irq_holder.borrow_mut();
             let irq_holder_bits = irq_holder.0.into_bits();
-            let complement = irq_holder_bits ^ self.prev_irq_holder.0.into_bits();
             let ie_bits = self.bus.ie.into_bits();
 
             self.prev_irq_holder = *irq_holder;
 
             for bit in 0..5 {
                 let mask = 1 << bit;
-                // if if.bit is set, and on a falling edge, and ie.bit is set:
-                if irq_holder_bits & mask != 0 && complement & mask != 0 && ie_bits & mask != 0 {
+                if irq_holder_bits & mask != 0 && ie_bits & mask != 0 {
                     if self.halt {
                         resumed_halt = true;
                     }
