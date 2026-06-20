@@ -66,7 +66,7 @@ fn main() -> anyhow::Result<()> {
     loop {
         let machine_cycles = cpu.step();
         let cycles = machine_cycles * 4;
-        total_cycles += cycles;
+        total_cycles += machine_cycles;
 
         for _ in 0..cycles {
             cpu.step_timer();
