@@ -6,6 +6,7 @@ use crate::{
     cartridge::Cartridge,
     cpu::{IntFlags, IrqHolder},
     dma::Dma,
+    joypad::Joypad,
     ppu::Ppu,
     timer::Timer,
 };
@@ -31,6 +32,7 @@ pub struct Bus {
     pub timer: Timer,
     pub gameboy_doctor: bool,
     pub window: Window,
+    pub joypad: Joypad,
 }
 
 impl Bus {
@@ -41,6 +43,7 @@ impl Bus {
         timer: Timer,
         gameboy_doctor: bool,
         window: Window,
+        joypad: Joypad,
     ) -> Self {
         Self {
             cartridge,
@@ -56,6 +59,7 @@ impl Bus {
             timer,
             gameboy_doctor,
             window,
+            joypad,
         }
     }
 
@@ -94,6 +98,8 @@ impl Bus {
                 .oam()
                 .map(|oam| oam[(addr as usize) - 0xFE00])
                 .unwrap_or(0xFF),
+            // Joypad
+            0xFF00 => self.joypad.status(),
             // DIV
             0xFF04 => self.timer.div(),
             // TIMA
@@ -181,6 +187,8 @@ impl Bus {
                     oam[(addr as usize) - 0xFE00] = value;
                 }
             }
+            // Joypad
+            0xFF00 => self.joypad.set_status(value),
             // DIV
             0xFF04 => self.timer.reset_div(),
             // TIMA

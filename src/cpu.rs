@@ -52,6 +52,10 @@ impl IrqHolder {
         self.0.set_timer(true);
     }
 
+    pub fn request_joypad(&mut self) {
+        self.0.set_joypad(true);
+    }
+
     pub fn as_if(&self) -> u8 {
         self.0.into_bits()
     }
@@ -1432,5 +1436,9 @@ impl Cpu {
                 }
             }
         }
+    }
+
+    pub fn update_joypad(&mut self) {
+        self.bus.joypad.update(&self.bus.window);
     }
 }

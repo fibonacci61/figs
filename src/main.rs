@@ -2,6 +2,7 @@ mod bus;
 mod cartridge;
 mod cpu;
 mod dma;
+mod joypad;
 mod ppu;
 mod timer;
 
@@ -20,6 +21,7 @@ use crate::{
     bus::Bus,
     cartridge::Cartridge,
     cpu::{Cpu, IrqHolder},
+    joypad::Joypad,
     ppu::{Ppu, SCREEN_HEIGHT, SCREEN_WIDTH},
     timer::Timer,
 };
@@ -57,6 +59,7 @@ fn main() -> anyhow::Result<()> {
     let irq_holder = Rc::new(RefCell::new(IrqHolder::new()));
     let timer = Timer::new(Rc::clone(&irq_holder));
     let ppu = Ppu::new(&mut window, Rc::clone(&irq_holder));
+    let joypad = Joypad::new(Rc::clone(&irq_holder));
     let bus = Bus::new(
         cart,
         ppu,
@@ -64,6 +67,7 @@ fn main() -> anyhow::Result<()> {
         timer,
         figs.gameboy_doctor,
         window,
+        joypad,
     );
     let mut cpu = Cpu::new(bus, figs.gameboy_doctor);
 
@@ -84,6 +88,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         cpu.step_dma(cycles);
+        cpu.update_joypad();
 
         if total_cycles >= next_sync {
             next_sync += SYNC_FREQUENCY;
