@@ -46,10 +46,10 @@ impl Joypad {
                 }
             } else {
                 match key {
-                    Key::A => new_status &= !RIGHT_A,
-                    Key::B => new_status &= !LEFT_B,
-                    Key::Z => new_status &= !UP_SELECT,
-                    Key::X => new_status &= !DOWN_START,
+                    Key::Z => new_status &= !RIGHT_A,
+                    Key::X => new_status &= !LEFT_B,
+                    Key::LeftShift => new_status &= !UP_SELECT,
+                    Key::Enter => new_status &= !DOWN_START,
                     _ => {}
                 }
             }
