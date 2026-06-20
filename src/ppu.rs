@@ -703,15 +703,19 @@ impl Ppu {
         } = state;
 
         if let Some(sf) = sprite_fetcher.as_mut() {
+            // if the fetch finished, clear it; otherwise we must still write the
+            // mutated fetcher state back below, or its progress (delay countdown,
+            // fetch sub-state) is lost every step and the scanline never ends
             if self.step_sprite_fetcher(sf) {
-                self.mode = State::Mode3(Mode3State {
-                    fetcher_delay: state.fetcher_delay,
-                    window_fetch,
-                    fetcher_state: state.fetcher_state,
-                    discard_counter: state.discard_counter,
-                    sprite_fetcher: None,
-                })
+                sprite_fetcher = None;
             }
+            self.mode = State::Mode3(Mode3State {
+                fetcher_delay,
+                window_fetch,
+                fetcher_state,
+                discard_counter,
+                sprite_fetcher,
+            });
         } else {
             let mut fetcher_state =
                 self.step_fetcher(fetcher_state, &mut fetcher_delay, window_fetch);
