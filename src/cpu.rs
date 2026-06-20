@@ -19,8 +19,8 @@ pub struct Registers {
 
 #[bitfields::bitfield(u8)]
 pub struct IntFlags {
-    pub lcd: bool,
     pub vblank: bool,
+    pub lcd: bool,
     pub timer: bool,
     pub serial: bool,
     pub joypad: bool,
