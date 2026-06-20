@@ -54,7 +54,10 @@ fn main() -> anyhow::Result<()> {
         "FIGS",
         SCREEN_WIDTH,
         SCREEN_HEIGHT,
-        WindowOptions::default(),
+        WindowOptions {
+            scale: minifb::Scale::X4,
+            ..Default::default()
+        },
     )
     .unwrap();
 
