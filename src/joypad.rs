@@ -32,9 +32,11 @@ impl Joypad {
             return;
         }
 
-        let mut new_status = 0x0F;
+        // preserve the select bits (4-5); start with all inputs 'released'
+        let mut new_status = (self.status & 0xF0) | 0x0F;
         for key in window.get_keys().iter() {
-            if self.status & SELECT_DPAD != 0 {
+            // a line is selected when its select bit is 0 (active low)
+            if self.status & SELECT_DPAD == 0 {
                 match key {
                     Key::Right => new_status &= !RIGHT_A,
                     Key::Left => new_status &= !LEFT_B,
@@ -74,6 +76,8 @@ impl Joypad {
     }
 
     pub fn set_status(&mut self, value: u8) {
-        self.status = value;
+        // only the select bits (4-5) are writable; the input nibble is driven by
+        // the keys in update(), and bits 6-7 are unused (read as 1)
+        self.status = (self.status & 0xCF) | (value & 0x30);
     }
 }
