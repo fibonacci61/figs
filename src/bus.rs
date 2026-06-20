@@ -144,7 +144,10 @@ impl Bus {
             },
             // IE
             0xFFFF => self.ie.into_bits(),
-            _ => 0xFF,
+            _ => {
+                log::warn!("attempt to read from unmapped addr {:X}", addr);
+                0xFF
+            }
         }
     }
 
