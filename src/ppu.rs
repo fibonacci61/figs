@@ -61,25 +61,25 @@ struct ObjectAttribute {
 #[bitfields::bitfield(u8)]
 #[derive(PartialEq, Eq, Pod, Zeroable)]
 struct ObjFlags {
-    priority: bool,
-    y_flip: bool,
-    x_flip: bool,
-    dmg_palette: bool,
     #[bits(4)]
     _reserved: u8,
+    dmg_palette: bool,
+    x_flip: bool,
+    y_flip: bool,
+    priority: bool,
 }
 
 #[bitfields::bitfield(u8)]
 #[derive(PartialEq, Eq)]
 struct Stat {
-    _reserved: bool,
-    lyc_int_select: bool,
-    mode2_int_select: bool,
-    mode1_int_select: bool,
-    mode0_int_select: bool,
-    lyc_eq_ly: bool,
     #[bits(2)]
     ppu_mode: u8,
+    lyc_eq_ly: bool,
+    mode0_int_select: bool,
+    mode1_int_select: bool,
+    mode2_int_select: bool,
+    lyc_int_select: bool,
+    _reserved: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
